@@ -117,8 +117,15 @@
         class="sidebar-section"
         :style="{ 'max-height': mode == 'label' ? '100%' : '57%' }"
       >
+        <div v-if="annotationLoadError" role="alert" style="color: white; padding: 10px">
+          <p>{{ annotationLoadError }}</p>
+          <button class="btn btn-secondary" @click="getData()">再読み込み</button>
+        </div>
+        <p v-else-if="loading.data" style="color: lightgray; font-size: 12px">
+          アノテーション情報を読み込んでいます。
+        </p>
         <p
-          v-if="categories.length == 0"
+          v-else-if="categories.length == 0"
           style="color: lightgray; font-size: 12px"
         >
           No categories have been enabled for this image.
@@ -351,6 +358,9 @@ export default {
         topRight: null
       },
       categories: [],
+      annotationLoadError: "",
+      annotationDataReady: false,
+      annotationRequestPending: false,
       dataset: {
         annotate_url: ""
       },
@@ -369,8 +379,12 @@ export default {
   methods: {
     ...mapMutations(["addProcess", "removeProcess", "resetUndo", "setDataset"]),
     save(callback) {
-      let process = "Saving";
-      this.addProcess(process);
+      if (!this.annotationDataReady) {
+        if (callback != null) callback();
+        return;
+      }
+      let processLabel = "Saving";
+      this.addProcess(processLabel);
       let refs = this.$refs;
 
       let data = {
@@ -419,12 +433,12 @@ export default {
       data.image.category_ids = this.image.categoryIds;
 
       axios
-        .post("/api/annotator/data", JSON.stringify(data))
+        .post(process.env.BASE_URL + "api/annotator/data", JSON.stringify(data))
         .then(() => {
           //TODO: updateUser
           if (callback != null) callback();
         })
-        .finally(() => this.removeProcess(process));
+        .finally(() => this.removeProcess(processLabel));
     },
     onpinchstart(e) {
       e.preventDefault();
@@ -509,8 +523,8 @@ export default {
     },
 
     initCanvas() {
-      let process = "Initializing canvas";
-      this.addProcess(process);
+      let processLabel = "Initializing canvas";
+      this.addProcess(processLabel);
       this.loading.image = true;
 
       let canvas = document.getElementById("editor");
@@ -529,7 +543,7 @@ export default {
         this.image.raster.sendToBack();
         this.fit();
         this.image.ratio = (width * height) / 1000000;
-        this.removeProcess(process);
+        this.removeProcess(processLabel);
 
         let tempCtx = document.createElement("canvas").getContext("2d");
         tempCtx.canvas.width = width;
@@ -572,15 +586,18 @@ export default {
       refs.eraser.setPreferences(preferences.eraser || {});
     },
     getData(callback) {
-      let process = "Loading annotation data";
-      this.addProcess(process);
+      if (this.loading.data && this.annotationRequestPending) return;
+      let processLabel = "Loading annotation data";
+      this.addProcess(processLabel);
       this.loading.data = true;
+      this.annotationRequestPending = true;
+      this.annotationDataReady = false;
+      this.annotationLoadError = "";
       axios
-        .get("/api/annotator/data/" + this.image.id)
+        .get(process.env.BASE_URL + "api/annotator/data/" + this.image.id, { timeout: 30000 })
         .then(response => {
           let data = response.data;
 
-          this.loading.data = false;
           // Set image data
           this.image.metadata = data.image.metadata || {};
           this.image.filename = data.image.file_name;
@@ -599,7 +616,8 @@ export default {
           this.setDataset(this.dataset);
 
           let preferences = data.preferences;
-          this.setPreferences(preferences);
+          this.setPreferences(preferences || {});
+          this.annotationDataReady = true;
 
           if (this.text.topLeft != null) {
             this.text.topLeft.content = this.image.filename;
@@ -611,14 +629,24 @@ export default {
 
           if (callback != null) callback();
         })
-        .catch(() => {
+        .catch(error => {
+          this.annotationDataReady = false;
+          const response = error.response;
+          this.annotationLoadError = error.code === "ECONNABORTED"
+            ? "アノテーション情報の取得が30秒以内に完了しませんでした。バックエンドのログを確認してください。"
+            : (response && response.data && response.data.message) ||
+              (response ? `アノテーション情報の取得に失敗しました（HTTP ${response.status}）。` :
+                "アノテーション情報を読み込めませんでした。通信状態とブラウザのエラーを確認してください。");
           this.axiosReqestError(
-            "Could not find requested image",
-            "Redirecting to previous page."
+            "Loading annotation data",
+            this.annotationLoadError
           );
-          this.$router.go(-1);
         })
-        .finally(() => this.removeProcess(process));
+        .finally(() => {
+          this.loading.data = false;
+          this.annotationRequestPending = false;
+          this.removeProcess(processLabel);
+        });
     },
     onCategoryClick(indices) {
       this.current.annotation = indices.annotation;
@@ -1073,7 +1101,7 @@ export default {
     this.paper = new paper.PaperScope();
 
     this.image.id = parseInt(this.identifier);
-    this.image.url = "/api/image/" + this.image.id;
+    this.image.url = process.env.BASE_URL + "api/image/" + this.image.id;
   }
 };
 </script>

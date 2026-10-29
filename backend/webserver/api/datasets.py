@@ -459,8 +459,13 @@ class DatasetDataId(Resource):
         #     images_json.append(image_json)
 
 
-        subdirectories = [f for f in sorted(os.listdir(directory))
-                          if os.path.isdir(directory + f) and not f.startswith('.')]
+        # DirEntry uses directory-entry metadata instead of issuing one stat
+        # request per image across the host-mounted dataset directory.
+        with os.scandir(directory) as entries:
+            subdirectories = sorted(
+                entry.name for entry in entries
+                if not entry.name.startswith('.') and entry.is_dir()
+            )
         
         categories = CategoryModel.objects(id__in=dataset.categories).only('id', 'name')
 

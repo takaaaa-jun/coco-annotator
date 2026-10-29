@@ -175,13 +175,13 @@ export default {
     onCardClick() {},
     onDownloadClick() {},
     onDeleteClick() {
-      axios.delete("/api/category/" + this.category.id).then(() => {
+      axios.delete(process.env.BASE_URL + "api/category/" + this.category.id).then(() => {
         this.$parent.updatePage();
       });
     },
     onUpdateClick() {
       axios
-        .put("/api/category/" + this.category.id, {
+        .put(process.env.BASE_URL + "api/category/" + this.category.id, {
           name: this.name,
           color: this.color,
           supercategory: this.supercategory,

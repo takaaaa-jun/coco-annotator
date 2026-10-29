@@ -598,7 +598,7 @@ export default {
           // this.exporting.id = data.exportId;
         })
         .catch(error => {
-          this.axiosReqestError("Loading Dataset", error.response.data.message);
+          this.axiosReqestError("Loading Dataset", this.datasetRequestError(error));
         })
         .finally(() => this.removeProcess(process));
     },
@@ -681,15 +681,30 @@ export default {
     },
     importCOCO() {
       let uploaded = document.getElementById("coco");
+      if (!uploaded.files.length) {
+        this.axiosReqestError("Importing COCO", "COCO形式のJSONファイルを選択してください。");
+        return;
+      }
+      const process = "Importing COCO";
+      this.addProcess(process);
       Dataset.uploadCoco(this.dataset.id, uploaded.files[0])
         .then(response => {
           let id = response.data.id;
           this.importing.id = id;
         })
         .catch(error => {
-          this.axiosReqestError("Importing COCO", error.response.data.message);
+          this.axiosReqestError("Importing COCO", this.datasetRequestError(error));
         })
         .finally(() => this.removeProcess(process));
+    },
+    datasetRequestError(error) {
+      const response = error.response;
+      if (!response) return "サーバーに接続できません。接続状態を確認してください。";
+      if (response.status === 413) {
+        return "ファイルがアップロード上限を超えています。gatewayの設定を確認してください。";
+      }
+      return (response.data && response.data.message) ||
+        `リクエストに失敗しました（HTTP ${response.status}）。サーバーログを確認してください。`;
     },
     mouseMove(event) {
       let element = this.$refs.sidebar;

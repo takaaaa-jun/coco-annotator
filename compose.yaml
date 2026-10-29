@@ -1,0 +1,7 @@
+name: coco-annotator
+
+# check_annotatorと同じく、共通設定と本番設定を標準で読み込む。
+include:
+  - path:
+      - docker-compose.base.yaml
+      - docker-compose.prod.yaml

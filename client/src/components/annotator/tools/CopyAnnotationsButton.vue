@@ -146,17 +146,17 @@ export default {
       if (this.validImageId !== "") return;
       this.close();
 
-      let process = "Copying annotations from " + this.fromId;
+      let processLabel = "Copying annotations from " + this.fromId;
       let categories = [];
       this.selectedCategories.forEach(category =>
         categories.push(parseInt(category))
       );
 
       this.$parent.save(() => {
-        this.addProcess(process);
+        this.addProcess(processLabel);
         axios
           .post(
-            "/api/image/copy/" +
+            process.env.BASE_URL + "api/image/copy/" +
               this.fromId +
               "/" +
               this.imageId +
@@ -174,7 +174,7 @@ export default {
               error.response.data.message
             );
           })
-          .finally(() => this.removeProcess(process));
+          .finally(() => this.removeProcess(processLabel));
       });
     }
   },

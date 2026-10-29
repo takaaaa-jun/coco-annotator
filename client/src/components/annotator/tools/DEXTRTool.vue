@@ -61,7 +61,7 @@ export default {
         });
 
         axios
-          .post(`/api/model/dextr/${this.$parent.image.id}`, {
+          .post(`${process.env.BASE_URL}api/model/dextr/${this.$parent.image.id}`, {
             points: pointsList,
             ...this.settings
           })

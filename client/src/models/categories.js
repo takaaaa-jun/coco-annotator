@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const baseURL = "/api/category/";
+const baseURL = process.env.BASE_URL + "api/category/";
 
 export default {
   allData(params) {

@@ -1,2 +1,9 @@
 datasets/*
 models/*
+.env
+.env.*
+db/
+client/node_modules/
+client/dist/
+.maintenance/
+backups/

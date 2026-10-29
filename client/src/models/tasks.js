@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const baseURL = "/api/tasks/";
+const baseURL = process.env.BASE_URL + "api/tasks/";
 
 export default {
   all() {

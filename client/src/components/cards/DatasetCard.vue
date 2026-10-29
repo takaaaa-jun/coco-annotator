@@ -251,7 +251,7 @@ export default {
     onShare() {
       this.dataset.users = this.sharedUsers;
       axios
-        .post("/api/dataset/" + this.dataset.id + "/share", {
+        .post(process.env.BASE_URL + "api/dataset/" + this.dataset.id + "/share", {
           users: this.sharedUsers
         })
         .then(() => {
@@ -259,11 +259,11 @@ export default {
         });
     },
     onCocoDownloadClick() {
-      let process = "Generating COCO for " + this.dataset.name;
-      this.addProcess(process);
+      let processLabel = "Generating COCO for " + this.dataset.name;
+      this.addProcess(processLabel);
 
       axios
-        .get("/api/dataset/" + this.dataset.id + "/coco")
+        .get(process.env.BASE_URL + "api/dataset/" + this.dataset.id + "/coco")
         .then(reponse => {
           let dataStr =
             "data:text/json;charset=utf-8," +
@@ -271,10 +271,10 @@ export default {
 
           this.downloadURI(dataStr, this.dataset.name + ".json");
         })
-        .finally(() => this.removeProcess(process));
+        .finally(() => this.removeProcess(processLabel));
     },
     onDeleteClick() {
-      axios.delete("/api/dataset/" + this.dataset.id).then(() => {
+      axios.delete(process.env.BASE_URL + "api/dataset/" + this.dataset.id).then(() => {
         this.$parent.updatePage();
       });
     },
@@ -282,7 +282,7 @@ export default {
       this.dataset.categories = this.selectedCategories;
 
       axios
-        .post("/api/dataset/" + this.dataset.id, {
+        .post(process.env.BASE_URL + "api/dataset/" + this.dataset.id, {
           categories: this.selectedCategories,
           default_annotation_metadata: this.$refs.defaultAnnotation.export()
         })
@@ -318,7 +318,7 @@ export default {
         return this.notFoundImageUrl;
       }
       if (this.dataset.numberImages > 0) {
-        return "/api/image/" + this.dataset.first_image_id + "?width=250";
+        return process.env.BASE_URL + "api/image/" + this.dataset.first_image_id + "?width=250";
       }
 
       return this.noImageUrl;

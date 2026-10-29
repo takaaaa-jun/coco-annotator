@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const baseURL = "/api/dataset";
+const baseURL = process.env.BASE_URL + "api/dataset";
 
 export default {
   allData(params) {

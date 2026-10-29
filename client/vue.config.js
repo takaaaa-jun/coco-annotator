@@ -1,4 +1,5 @@
 module.exports = {
+  baseUrl: process.env.VUE_APP_BASE_PATH || "/",
   devServer: {
     disableHostCheck: true,
     proxy: {

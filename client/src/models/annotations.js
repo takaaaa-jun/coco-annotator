@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const baseURL = "/api/annotation/";
+const baseURL = process.env.BASE_URL + "api/annotation/";
 
 export default {
   create(annotation) {

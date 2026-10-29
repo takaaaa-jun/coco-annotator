@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const baseURL = "/api/undo/";
+const baseURL = process.env.BASE_URL + "api/undo/";
 
 export default {
   all(limit, instance) {

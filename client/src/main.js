@@ -10,6 +10,7 @@ import VTooltip from "v-tooltip";
 import Loading from "vue-loading-overlay";
 import VueTouch from 'vue-touch'
 import VueSocketIO from "vue-socket.io";
+import io from "socket.io-client";
 import { VLazyImagePlugin } from "v-lazy-image";
 
 import "bootstrap";
@@ -30,7 +31,9 @@ Vue.use(VLazyImagePlugin);
 Vue.use(
   new VueSocketIO({
     debug: true,
-    connection: window.location.origin
+    connection: io(window.location.origin, {
+      path: process.env.BASE_URL + "socket.io"
+    })
   })
 );
 Vue.use(VueTouch,{name:'v-touch'});

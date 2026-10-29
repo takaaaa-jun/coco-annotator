@@ -32,11 +32,11 @@ export default {
     },
     download() {
       if (this.include.image) {
-        let url = "/api/image/" + this.image.id + "?asAttachment=true";
+        let url = process.env.BASE_URL + "api/image/" + this.image.id + "?asAttachment=true";
         this.downloadURI(url, this.image.filename);
       }
       if (this.include.coco) {
-        let url = "/api/image/" + this.image.id + "/coco";
+        let url = process.env.BASE_URL + "api/image/" + this.image.id + "/coco";
 
         axios.get(url).then(response => {
           let dataStr =

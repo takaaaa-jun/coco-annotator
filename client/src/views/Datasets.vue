@@ -150,7 +150,7 @@
 
           <div class="modal-body">
             More information can be found in the
-            <a href="/help">help section</a>.
+            <a href="https://github.com/jsbroks/coco-annotator/wiki">help section</a>.
             <hr />
             <h6>What is a dataset?</h6>
             A dataset is a collection of images. It provides default category

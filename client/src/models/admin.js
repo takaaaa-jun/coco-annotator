@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const baseURL = "/api/admin/";
+const baseURL = process.env.BASE_URL + "api/admin/";
 
 export default {
   getUsers(limit) {

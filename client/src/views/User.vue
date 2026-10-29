@@ -87,7 +87,7 @@ export default {
       if (this.changePassword.password.length === 0) return;
 
       axios
-        .post("/api/user/password", { ...this.changePassword })
+        .post(process.env.BASE_URL + "api/user/password", { ...this.changePassword })
         .then(() => {
           this.axiosReqestSuccess(
             "Changing Password",

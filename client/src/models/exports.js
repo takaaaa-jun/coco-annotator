@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const baseURL = "/api/export";
+const baseURL = process.env.BASE_URL + "api/export";
 
 export default {
   download(id, dataset) {

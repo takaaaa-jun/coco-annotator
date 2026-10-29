@@ -51,7 +51,7 @@ const mutations = {
   setUserInfo(state) {
     state.isAuthenticatePending = true;
     axios
-      .get("/api/user/")
+      .get(process.env.BASE_URL + "api/user/")
       .then(response => {
         state.user = response.data.user;
         state.isAuthenticated = true;
@@ -72,7 +72,7 @@ const actions = {
     commit("loggingIn");
 
     return axios
-      .post("/api/user/register", {
+      .post(process.env.BASE_URL + "api/user/register", {
         ...user
       })
       .then(response => {
@@ -93,7 +93,7 @@ const actions = {
     commit("loggingIn");
 
     return axios
-      .post("/api/user/login", {
+      .post(process.env.BASE_URL + "api/user/login", {
         ...user
       })
       .then(response => {
@@ -114,7 +114,7 @@ const actions = {
     commit("clearError");
 
     return axios
-      .get("/api/user/logout")
+      .get(process.env.BASE_URL + "api/user/logout")
       .then(() => {
         commit("loggedOut");
         return true;

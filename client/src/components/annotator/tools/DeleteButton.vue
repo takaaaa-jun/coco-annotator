@@ -19,7 +19,7 @@ export default {
   },
   methods: {
     execute() {
-      axios.delete("/api/image/" + this.image.id).then(() => {});
+      axios.delete(process.env.BASE_URL + "api/image/" + this.image.id).then(() => {});
     }
   }
 };

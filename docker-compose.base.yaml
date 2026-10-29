@@ -1,0 +1,54 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/webserver/Dockerfile
+    environment:
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
+      FILE_WATCHER: "true"
+    volumes:
+      - ./datasets:/datasets
+      - ./models:/models
+    depends_on: [database, workers]
+    networks: [app-network]
+
+  frontend:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    depends_on: [backend]
+    networks: [app-network]
+
+  workers:
+    build:
+      context: .
+      dockerfile: backend/webserver/Dockerfile
+      target: workers
+    restart: unless-stopped
+    volumes:
+      - ./datasets:/datasets
+    depends_on: [database, messageq]
+    networks: [app-network]
+
+  database:
+    image: mongo:4.0
+    restart: unless-stopped
+    volumes:
+      - mongodb_data:/data/db
+    networks: [app-network]
+
+  messageq:
+    image: rabbitmq:3.7.0
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: user
+      RABBITMQ_DEFAULT_PASS: password
+    networks: [app-network]
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
+    name: coco-annotator_mongodb_data

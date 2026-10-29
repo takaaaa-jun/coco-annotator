@@ -3,6 +3,8 @@
 .idea/*
 datasets/*
 !datasets/.gitkeep
+db/*
+!db/.gitkeep
 .history/*
 .vscode/*
 __pycache__
@@ -11,3 +13,8 @@ dist/*
 
 docs/.vuepress/dist/*
 models/*.h5
+.env
+.env.*
+!.env.example
+.maintenance/
+backups/

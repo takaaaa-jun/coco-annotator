@@ -1,0 +1,26 @@
+services:
+  backend:
+    image: coco-annotator-backend:production
+    build:
+      target: production
+    restart: unless-stopped
+    expose: ["8000"]
+    networks:
+      app-network: {}
+      shared-gateway-net:
+        aliases: [coco-annotator-backend]
+
+  frontend:
+    image: coco-annotator-frontend:production
+    build:
+      target: production
+    restart: unless-stopped
+    expose: ["80"]
+    networks:
+      app-network: {}
+      shared-gateway-net:
+        aliases: [coco-annotator-frontend]
+
+networks:
+  shared-gateway-net:
+    external: true

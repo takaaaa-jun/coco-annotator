@@ -434,7 +434,7 @@ export default {
       };
     },
     deleteAnnotation() {
-      axios.delete("/api/annotation/" + this.annotation.id).then(() => {
+      axios.delete(process.env.BASE_URL + "api/annotation/" + this.annotation.id).then(() => {
         this.$socket.emit("annotation", {
           action: "delete",
           annotation: this.annotation

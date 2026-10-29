@@ -54,7 +54,7 @@
           <RouterLink class="nav-link d-none d-xl-block" to="/admin/panel">Admin</RouterLink>
         </li>
         <li class="nav-item d-none d-xl-block">
-          <a class="nav-link" href="/api">API</a>
+          <a class="nav-link" :href="$router.options.base + 'api/'">API</a>
         </li>
         <li class="nav-item d-none d-xl-block">
           <a
