@@ -9,6 +9,7 @@ from threading import Thread
 from google_images_download import google_images_download as gid
 
 from ..util.pagination_util import Pagination
+from ..util.image_search import image_search_query
 from ..util import query_util, coco_util, profile
 
 from database import (
@@ -380,8 +381,13 @@ class DatasetDataId(Resource):
         for key in parsed_args:
             args.pop(key, None)
         
-        # Generate query from remaining arugments
-        query = {}
+        # Contains supports either a filename substring or an inclusive ID range.
+        try:
+            query = image_search_query(args.pop('file_name__icontains', ''))
+        except ValueError as error:
+            return {'message': str(error)}, 400
+
+        # Generate query from remaining arguments
         for key, value in args.items():
             lower = value.lower()
             if lower in ["true", "false"]:
