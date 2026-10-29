@@ -5,6 +5,7 @@ services:
       dockerfile: backend/webserver/Dockerfile
     environment:
       SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
+      SESSION_COOKIE_PATH: /coco-annotator/
       FILE_WATCHER: "true"
     volumes:
       - ./datasets:/datasets

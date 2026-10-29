@@ -11,6 +11,7 @@ import Loading from "vue-loading-overlay";
 import VueTouch from 'vue-touch'
 import VueSocketIO from "vue-socket.io";
 import io from "socket.io-client";
+import axios from "axios";
 import { VLazyImagePlugin } from "v-lazy-image";
 
 import "bootstrap";
@@ -19,6 +20,17 @@ import "vue-toastr-2/dist/vue-toastr-2.min.css";
 import "vue-loading-overlay/dist/vue-loading.css";
 
 Vue.config.productionTip = false;
+
+axios.interceptors.response.use(
+  response => response,
+  error => {
+    if (error.response && error.response.status === 401 &&
+        store.state.user.isAuthenticated) {
+      store.commit("user/loggedOut");
+    }
+    return Promise.reject(error);
+  }
+);
 
 paper.install(window);
 

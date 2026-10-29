@@ -17,7 +17,7 @@
           />
         </h2>
 
-        <p class="text-center">
+        <p v-if="!loadError && !loadingDatasets" class="text-center">
           Loaded <strong>{{ datasets.length }}</strong> datasets.
         </p>
 
@@ -47,7 +47,9 @@
         </div>
 
         <hr />
-        <p v-if="datasets.length < 1" class="text-center">
+        <p v-if="loadError" role="alert" class="text-center text-danger">{{ loadError }}</p>
+        <p v-else-if="loadingDatasets" class="text-center">データセットを読み込んでいます。</p>
+        <p v-else-if="datasets.length < 1" class="text-center">
           You need to create a dataset!
         </p>
         <div v-else style="background-color: gray">
@@ -205,6 +207,8 @@ export default {
         categories: []
       },
       datasets: [],
+      loadError: "",
+      loadingDatasets: false,
       subdirectories: [],
       categories: [],
       users: []
@@ -215,6 +219,8 @@ export default {
     updatePage(page) {
       let process = "Loading datasets";
       this.addProcess(process);
+      this.loadingDatasets = true;
+      this.loadError = "";
 
       page = page || this.page;
       this.page = page;
@@ -228,12 +234,22 @@ export default {
         this.subdirectories = response.data.subdirectories;
         this.pages = response.data.pagination.pages;
         this.page = response.data.pagination.page;
-        AdminPanel.getUsers(this.limit)
+        if (this.$store.getters["user/isAdmin"]) AdminPanel.getUsers(this.limit)
           .then(response => {
             this.users = response.data.users;
           });
       })
-      .finally(() => this.removeProcess(process));
+      .catch(error => {
+        const response = error.response;
+        this.loadError = response && response.status === 401
+          ? "ログイン状態が失われました。再ログインしてください。"
+          : (response && response.data && response.data.message) || "データセットを取得できませんでした。";
+        this.axiosReqestError("Loading datasets", this.loadError);
+      })
+      .finally(() => {
+        this.loadingDatasets = false;
+        this.removeProcess(process);
+      });
     },
     createDataset() {
       if (this.create.name.length < 1) return;

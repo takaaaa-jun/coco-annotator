@@ -1071,6 +1071,10 @@ export default {
     }
   },
   beforeRouteLeave(to, from, next) {
+    if (!this.$store.state.user.isAuthenticated) {
+      next();
+      return;
+    }
     this.current.annotation = -1;
 
     this.$nextTick(() => {

@@ -22,6 +22,10 @@ Socket.IOは画面用Nginxからバックエンドへ中継します。
 gatewayの`/coco-annotator/api/`には`client_max_body_size 64m;`を設定します。
 COCO JSONの取り込み時に適用される上限です。
 
+ログインCookieは専用名`coco_annotator_session`を使用し、
+Composeで`/coco-annotator/`配下に限定します。同一ホストの別アプリとの競合を防ぐためです。
+Cookie設定の更新後は再ログインしてください。`SECRET_KEY`は再起動ごとに変更せず保持します。
+
 ## 起動
 
 Dockerが利用できる環境で、既存ネットワークがなければ作成します。

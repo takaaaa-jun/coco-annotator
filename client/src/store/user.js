@@ -43,6 +43,7 @@ const mutations = {
   loggedOut(state) {
     state.user = null;
     state.isAuthenticated = false;
+    state.isAuthenticatePending = false;
     state.isLogoutPending = false;
   },
   clearError(state) {
@@ -58,6 +59,7 @@ const mutations = {
         state.isAuthenticatePending = false;
       })
       .catch(() => {
+        state.user = null;
         state.isAuthenticated = false;
         state.isAuthenticatePending = false;
       });
