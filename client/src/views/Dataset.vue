@@ -297,7 +297,7 @@
       >
         <PanelString name="Contains" v-model="query.file_name__icontains" @submit="updatePage" />
         <p style="color: lightgray; font-size: 12px; margin: 3px 5px">
-          ファイル名の一部、または画像ID範囲（例: 00001-01000）を入力しEnter
+          ファイル名の一部、またはファイル番号範囲（例: 00001-01000）を入力しEnter
         </p>
         <PanelToggle name="Show Annotated" v-model="panel.showAnnotated" />
         <PanelToggle name="Show Not Annotated" v-model="panel.showNotAnnotated" />

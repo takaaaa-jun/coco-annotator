@@ -15,6 +15,8 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 class ImageModel(DynamicDocument):
 
+    meta = {'indexes': [('dataset_id', 'deleted', 'file_name')]}
+
     COCO_PROPERTIES = ["id", "width", "height", "file_name", "path", "license",\
                        "flickr_url", "coco_url", "date_captured", "dataset_id"]
 

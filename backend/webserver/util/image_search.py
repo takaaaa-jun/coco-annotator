@@ -2,7 +2,7 @@ import re
 
 
 def image_search_query(value):
-    """Treat a numeric start-end search as an inclusive database image ID range."""
+    """Search five-digit numeric filenames by range, independently of DB IDs."""
     text = value.strip()
     if not text:
         return {}
@@ -12,6 +12,10 @@ def image_search_query(value):
         return {'file_name__icontains': value}
 
     start, end = (int(part) for part in match.groups())
-    if not 1 <= start <= end <= 9223372036854775807:
-        raise ValueError('画像IDの範囲は1以上で、開始番号が終了番号以下になるよう指定してください。')
-    return {'id__gte': start, 'id__lte': end}
+    if not 1 <= start <= end <= 99999:
+        raise ValueError('ファイル番号の範囲は1〜99999で、開始番号が終了番号以下になるよう指定してください。')
+    return {'__raw__': {'file_name': {
+        '$gte': '{:05d}.'.format(start),
+        '$lt': '{:05d}/'.format(end),
+        '$regex': r'^[0-9]{5}\.[^.]+$',
+    }}}
