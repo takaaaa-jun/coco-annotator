@@ -55,7 +55,12 @@
           <div v-else>
             <Pagination :pages="pages" @pagechange="updatePage" />
             <div class="row">
-              <ImageCard v-for="image in images" :key="image.id" :image="image" />
+              <ImageCard
+                v-for="(image, index) in images"
+                :key="image.id"
+                :image="image"
+                :display-number="imageOffset + index + 1"
+              />
             </div>
             <Pagination :pages="pages" @pagechange="updatePage" />
           </div>
@@ -499,6 +504,7 @@ export default {
       pages: 1,
       generateLimit: 100,
       limit: 52,
+      imageOffset: 0,
       imageCount: 0,
       categories: [],
       images: [],
@@ -585,6 +591,7 @@ export default {
           let data = response.data;
 
           this.images = data.images;
+          this.imageOffset = data.page * data.per_page;
           this.dataset = data.dataset;
           this.categories = data.categories;
 

@@ -27,7 +27,7 @@
             style="width: 100%; float: left"
           >
             <strong class="card-title">
-              {{ image.id }}. {{ image.file_name }}
+              {{ displayNumber }}. {{ image.file_name }}
             </strong>
           </span>
 
@@ -94,6 +94,10 @@ import axios from "axios";
 export default {
   name: "ImageCard",
   props: {
+    displayNumber: {
+      type: Number,
+      required: true
+    },
     image: {
       type: Object,
       required: true
