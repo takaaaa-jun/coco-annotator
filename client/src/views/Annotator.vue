@@ -103,6 +103,13 @@
         ref="filetitle"
       />
 
+      <div v-if="categoryReviewMessage" role="status" style="padding: 10px; color: white;">
+        <p>{{ categoryReviewMessage }}</p>
+        <button v-if="categoryReviewReady" class="btn btn-primary btn-sm" :disabled="categoryReviewCreating" @click="startCategoryReviewBox">
+          このカテゴリで新しい矩形を開始
+        </button>
+      </div>
+
       <div v-if="categories.length > 5">
         <div style="padding: 0px 5px">
           <input
@@ -229,6 +236,7 @@
 </template>
 
 <script>
+import { resolveCategoryReview } from "@/libs/category-review";
 import paper from "paper";
 import axios from "axios";
 
@@ -359,6 +367,11 @@ export default {
       },
       categories: [],
       annotationLoadError: "",
+      categoryReviewRevision: 0,
+      categoryReviewMessage: "",
+      categoryReviewReady: false,
+      categoryReviewCreating: false,
+      categoryReviewApplied: false,
       annotationDataReady: false,
       annotationRequestPending: false,
       dataset: {
@@ -401,6 +414,7 @@ export default {
         dataset: this.dataset,
         image: {
           id: this.image.id,
+          category_review_revision: this.categoryReviewRevision,
           metadata: this.$refs.settings.exportMetadata(),
           settings: {
             selectedLayers: this.current
@@ -437,6 +451,10 @@ export default {
         .then(() => {
           //TODO: updateUser
           if (callback != null) callback();
+        })
+        .catch(error => {
+          const response = error.response;
+          this.annotationLoadError = response && response.data && response.data.message || "保存に失敗しました。再読み込み前に編集内容を確認してください。";
         })
         .finally(() => this.removeProcess(processLabel));
     },
@@ -585,6 +603,35 @@ export default {
       refs.brush.setPreferences(preferences.brush || {});
       refs.eraser.setPreferences(preferences.eraser || {});
     },
+    applyCategoryReview() {
+      if (this.categoryReviewApplied || !this.annotationDataReady || !this.doneLoading) return;
+      const query = this.$route.query;
+      if (query.category_id == null) return;
+      this.categoryReviewApplied = true;
+      let selection;
+      try { selection = resolveCategoryReview(query, this.dataset.id, this.categories); }
+      catch (error) { this.categoryReviewMessage = error.message; return; }
+      const index = selection.index;
+      this.mode = "segment";
+      this.search = this.categories[index].name;
+      this.current.category = index;
+      this.current.annotation = -1;
+      this.categoryReviewReady = true;
+      this.categoryReviewMessage = "選択中: " + this.categories[index].name + "。下のボタンを押してから画像上で矩形を描いてください。";
+      this.$nextTick(() => {
+        const component = this.getCategory(index);
+        if (component) { component.isVisible = true; component.showAnnotations = true; }
+      });
+    },
+    startCategoryReviewBox() {
+      if (!this.categoryReviewReady || this.categoryReviewCreating || !this.currentCategory) return;
+      this.categoryReviewCreating = true;
+      localStorage.setItem("editorTool", "BBox");
+      this.currentCategory.createAnnotation()
+        .then(() => this.$nextTick(() => { this.activeTool = "BBox"; }))
+        .catch(() => { this.categoryReviewMessage = "新しい矩形の開始に失敗しました。ログインと接続状態を確認してください。"; })
+        .finally(() => { this.categoryReviewCreating = false; });
+    },
     getData(callback) {
       if (this.loading.data && this.annotationRequestPending) return;
       let processLabel = "Loading annotation data";
@@ -599,6 +646,7 @@ export default {
           let data = response.data;
 
           // Set image data
+          this.categoryReviewRevision = data.image.category_review_revision || 0;
           this.image.metadata = data.image.metadata || {};
           this.image.filename = data.image.file_name;
           this.image.next = data.image.next;
@@ -957,6 +1005,7 @@ export default {
   watch: {
     doneLoading(done) {
       if (done) {
+        this.$nextTick(() => this.applyCategoryReview());
         if (this.loading.loader) {
           this.loading.loader.hide();
         }

@@ -1,3 +1,3 @@
 module.exports = {
-  presets: ["@vue/app"]
+  presets: [["@vue/app", { modules: process.env.NODE_ENV === "test" ? "commonjs" : false }]]
 };
