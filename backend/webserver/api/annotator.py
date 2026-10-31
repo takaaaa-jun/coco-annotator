@@ -14,6 +14,8 @@ from database import (
     SessionEvent
 )
 
+from ..util.review_lock import image_write_lock
+
 api = Namespace('annotator', description='Annotator related operations')
 
 
@@ -22,6 +24,7 @@ class AnnotatorData(Resource):
 
     @profile
     @login_required
+    @image_write_lock()
     def post(self):
         """
         Called when saving data from the annotator client
@@ -38,9 +41,11 @@ class AnnotatorData(Resource):
 
         # Check if current user can access dataset
         db_dataset = current_user.datasets.filter(id=image_model.dataset_id).first()
-        if dataset is None:
+        if db_dataset is None:
             return {'success': False, 'message': 'Could not find associated dataset'}
         
+        if not current_user.can_edit(db_dataset):
+            return {'message': 'Dataset edit permission required'}, 403
         db_dataset.update(annotate_url=dataset.get('annotate_url', ''))
         
         categories = CategoryModel.objects.all()
