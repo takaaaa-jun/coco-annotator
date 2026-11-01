@@ -79,11 +79,15 @@
               role="tabpanel"
               aria-labelledby="login-tab"
             >
-              <form class="vld-parent" ref="loginForm">
+              <form class="vld-parent" ref="loginForm" @submit.prevent="loginUser">
+                <p class="text-muted">COCO Annotator専用のアカウントでログインしてください。check_annotatorとは別の登録情報です。</p>
+                <p class="text-muted">接続先：{{ connectedHost }}（localhostとサーバーの登録情報は別です）</p>
+                <p v-if="authError" role="alert" class="alert alert-danger">{{ authError }}</p>
                 <div class="form-group">
                   <label>Username</label>
                   <input
-                    v-model="loginForm.username"
+                    v-model.trim="loginForm.username"
+                    autocomplete="username"
                     type="text"
                     class="form-control"
                     required
@@ -94,6 +98,7 @@
                   <label>Password</label>
                   <input
                     v-model="loginForm.password"
+                    autocomplete="current-password"
                     type="password"
                     class="form-control"
                   />
@@ -101,8 +106,7 @@
                 <button
                   type="submit"
                   class="btn btn-primary btn-block"
-                  :class="{ disabled: !loginValid }"
-                  @click.prevent="loginUser"
+                  :disabled="!loginValid || loginForm.loading || isAuthenticatePending"
                 >
                   Login
                 </button>
@@ -186,6 +190,7 @@
 </template>
 
 <script>
+import { authDestination, loginErrorMessage } from "@/libs/auth-flow";
 import toastrs from "@/mixins/toastrs";
 import { mapActions, mapMutations } from "vuex";
 export default {
@@ -202,6 +207,7 @@ export default {
   data() {
     return {
       tab: "login",
+      authError: "",
       registerForm: {
         loading: false,
         name: "",
@@ -235,7 +241,7 @@ export default {
         successCallback: () => {
           loader.hide();
           this.increamentUserCount();
-          this.$router.push(this.redirect);
+          this.$router.replace(this.destination);
         },
         errorCallback: error =>
           this.axiosReqestError(
@@ -250,23 +256,15 @@ export default {
      * Login a user with provided infomation from login form
      */
     loginUser() {
-      if (!this.loginValid) return;
-
-      let loader = this.$loading.show({
-        container: this.$refs.registerForm,
-        color: "#383c4a"
-      });
-
-      let data = {
-        user: this.loginForm,
-        successCallback: () => {
-          loader.hide();
-          this.$router.push(this.redirect);
-        },
-        errorCallback: error =>
-          this.axiosReqestError("User Login", error.response.data.message)
-      };
-      this.login(data);
+      if (!this.loginValid || this.loginForm.loading || this.isAuthenticatePending) return;
+      this.authError = "";
+      this.loginForm.loading = true;
+      const loader = this.$loading.show({ container: this.$refs.loginForm, color: "#383c4a" });
+      return this.login({
+        user: { username: this.loginForm.username.trim(), password: this.loginForm.password },
+        successCallback: () => this.$router.replace(this.destination),
+        errorCallback: error => { this.authError = loginErrorMessage(error); }
+      }).finally(() => { loader.hide(); this.loginForm.loading = false; });
     },
     /**
      * Returns boolean value if provide string is a valid username
@@ -312,6 +310,10 @@ export default {
     }
   },
   computed: {
+    connectedHost() { return window.location.host; },
+    destination() {
+      return authDestination(this.$route.query.redirect) || this.redirect;
+    },
     registerValid() {
       if (!this.validUsername(this.registerForm.username)) return false;
       if (this.registerForm.password.length < 5) return false;
@@ -343,19 +345,11 @@ export default {
       if (users === 0) {
         this.$refs.registerTab.click();
       }
-    },
-    isAuthenticatePending: {
-      handler() {
-        if (this.isAuthenticatePending) {
-          this.$router.push({
-            name: "datasets"
-          });
-        }
-      },
-      immediate: true
     }
   },
-  mounted() {}
+  mounted() {
+    if (this.$store.state.user.isAuthenticated) this.$router.replace(this.destination);
+  }
 };
 </script>
 

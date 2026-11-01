@@ -1,7 +1,7 @@
 <template>
   <div id="app">
     <NavBar v-show="showNavBar" />
-    <RouterView :key="$route.fullPath" />
+    <RouterView v-if="$route.name === 'authentication' || isAuthenticated" :key="$route.fullPath" />
   </div>
 </template>
 
@@ -16,8 +16,10 @@ export default {
     ...mapMutations("user", ["setUserInfo"]),
     ...mapMutations("info", ["getServerInfo", "socket"]),
     toAuthPage() {
-      this.$router.push({
-        name: "authentication"
+      if (this.$route.name === "authentication") return;
+      this.$router.replace({
+        name: "authentication",
+        query: { redirect: this.$route.fullPath }
       });
     }
   },
@@ -74,12 +76,6 @@ export default {
       handler(newValue) {
         if (newValue) {
           this.toAuthPage();
-        } else {
-          if (this.$router.name == "authentication") {
-            this.$router.push({
-              name: "datasets"
-            });
-          }
         }
       },
       immediate: true
