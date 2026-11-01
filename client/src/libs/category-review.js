@@ -8,5 +8,6 @@ export function resolveCategoryReview(query, datasetId, categories) {
   }
   const index = categories.findIndex(category => category.id === Number(categoryId));
   if (index < 0) throw new Error("選択したカテゴリはこのデータセットで有効ではありません。");
+  if (categories[index].selectable === false) throw new Error("旧カテゴリでは新しい矩形を作成できません。新カテゴリを選択してください。");
   return { index, category: categories[index] };
 }

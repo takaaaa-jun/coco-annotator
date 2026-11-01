@@ -8,6 +8,7 @@ services:
       SESSION_COOKIE_PATH: /coco-annotator/
       FILE_WATCHER: "true"
       CATEGORY_REVIEW_CATALOG: ${CATEGORY_REVIEW_CATALOG:-}
+      CATEGORY_REVIEW_DATASET_ID: ${CATEGORY_REVIEW_DATASET_ID:-}
     volumes:
       - ./datasets:/datasets
       - ./models:/models

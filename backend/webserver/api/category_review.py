@@ -27,6 +27,22 @@ def failure(error):
 
 
 def load_catalog():
+    managed_dataset_id = os.environ.get('CATEGORY_REVIEW_DATASET_ID')
+    if managed_dataset_id:
+        try:
+            dataset_id = int(managed_dataset_id)
+        except ValueError:
+            raise ReviewError('CATEGORY_REVIEW_DATASET_IDが不正です。', 503)
+        dataset = current_user.datasets.filter(id=dataset_id, deleted=False).first()
+        if dataset is None:
+            raise ReviewError('対象データセットへのアクセス権がありません。', 403)
+        if getattr(dataset, 'category_sync_lock', None):
+            raise ReviewError('カテゴリ同期中です。完了後に再読み込みしてください。', 409)
+        stored = getattr(dataset, 'category_review_catalog', None)
+        if not stored:
+            raise ReviewError('新カテゴリの同期が未完了です。管理者が同期してください。', 503)
+        catalog = validate_catalog(stored)
+        return verify_catalog_categories(catalog, dataset)
     path = os.environ.get('CATEGORY_REVIEW_CATALOG')
     if not path:
         raise ReviewError('カテゴリ対応表が未設定です。管理者がCATEGORY_REVIEW_CATALOGを設定してください。', 503)
@@ -40,14 +56,30 @@ def load_catalog():
     dataset = current_user.datasets.filter(id=catalog['datasetId'], deleted=False).first()
     if dataset is None:
         raise ReviewError('対象データセットへのアクセス権がありません。', 403)
+    # A managed dataset must never fall back to an old file catalog.
+    if getattr(dataset, 'category_review_catalog', None):
+        raise ReviewError('新カテゴリにはCATEGORY_REVIEW_DATASET_IDを設定してください。', 503)
+    return verify_catalog_categories(catalog, dataset)
+
+
+def verify_catalog_categories(catalog, dataset):
     # Both sides of the mapping must be real, enabled database categories.
     all_ids = {row['id'] for row in catalog['sourceCategories'] + catalog['targetCategories']}
     actual = {category.id: category for category in CategoryModel.objects(id__in=list(all_ids), deleted=False)}
-    if not all_ids.issubset(set(dataset.categories)) or set(actual) != all_ids:
+    target_ids = {row['id'] for row in catalog['targetCategories']}
+    required_enabled = target_ids if catalog.get('managedTaxonomy') else all_ids
+    if not required_enabled.issubset(set(dataset.categories)) or set(actual) != all_ids:
         raise ReviewError('対応表のカテゴリがDBに存在しないか、データセットで有効ではありません。', 409)
     for row in catalog['sourceCategories'] + catalog['targetCategories']:
         if actual[row['id']].name != row['name']:
             raise ReviewError('対応表とDBのカテゴリ名が一致しません（ID {}）。'.format(row['id']), 409)
+    if catalog.get('managedTaxonomy'):
+        if set(dataset.categories) != target_ids:
+            raise ReviewError('新カテゴリの選択肢が同期結果と一致しません。', 409)
+        for row in catalog['targetCategories']:
+            marker = actual[row['id']].metadata.get('check_annotator', {})
+            if marker.get('taxonomy') != catalog['managedTaxonomy'] or marker.get('key') != row.get('managedKey'):
+                raise ReviewError('置換先カテゴリの管理コードが一致しません。', 409)
     return catalog, dataset
 
 

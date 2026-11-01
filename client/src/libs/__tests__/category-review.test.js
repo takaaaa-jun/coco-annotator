@@ -9,6 +9,10 @@ describe("category review handoff", () => {
   it("leaves normal editor URLs unchanged", () => {
     expect(resolveCategoryReview({}, 2, categories)).toBeNull();
   });
+  it("rejects a legacy category retained only for existing annotations", () => {
+    expect(() => resolveCategoryReview({ dataset_id: "2", category_id: "101" }, 2,
+      [{ id: 101, name: "rice", selectable: false }])).toThrow();
+  });
   it.each([
     { dataset_id: "3", category_id: "101" },
     { dataset_id: "2", category_id: "999" },
