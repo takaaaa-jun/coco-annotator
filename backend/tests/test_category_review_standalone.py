@@ -1,5 +1,7 @@
 """Run directly. Optional DB tests require a dedicated throwaway MongoDB host."""
 import copy
+import collections
+import collections.abc
 import importlib.util
 import json
 import os
@@ -8,6 +10,11 @@ import sys
 import tempfile
 import types
 import unittest
+
+# Compatibility aliases for running the legacy Flask test stack on Python 3.10+.
+for name in ('Mapping', 'MutableMapping', 'Sequence', 'Hashable', 'Iterable'):
+    if not hasattr(collections, name):
+        setattr(collections, name, getattr(collections.abc, name))
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -73,7 +80,8 @@ class ApiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         host = os.environ['CATEGORY_REVIEW_TEST_DB']
-        if not host.startswith('mongodb://category-review-test-db/'):
+        if not (host == 'mongodb://category-review-test-db/category_review_tests'
+                or host == 'mongodb://127.0.0.1:27028/category_review_tests'):
             raise RuntimeError('Refusing to run against a non-test MongoDB host')
         from mongoengine import connect
         connect('category_review_tests', host=host)

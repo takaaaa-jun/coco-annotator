@@ -3,6 +3,7 @@ from flask_login import login_required, current_user
 
 from database import AnnotationModel
 from ..util import query_util
+from ..util.category_selection import validate_selection
 
 import datetime
 import logging
@@ -46,6 +47,10 @@ class Annotation(Resource):
         image = current_user.images.filter(id=image_id, deleted=False).first()
         if image is None:
             return {"message": "Invalid image id"}, 400
+        try:
+            validate_selection(image, category_id)
+        except ValueError as error:
+            return {'message': str(error)}, 409
         
         logger.info(
             f'{current_user.username} has created an annotation for image {image_id} with {isbbox}')
@@ -109,6 +114,13 @@ class AnnotationId(Resource):
         args = update_annotation.parse_args()
 
         new_category_id = args.get('category_id')
+        image = current_user.images.filter(id=annotation.image_id, deleted=False).first()
+        if image is None:
+            return {'message': '画像へのアクセス権がありません。'}, 403
+        try:
+            validate_selection(image, new_category_id)
+        except ValueError as error:
+            return {'message': str(error)}, 409
         annotation.update(category_id=new_category_id)
         logger.info(
             f'{current_user.username} has updated category for annotation (id: {annotation.id})'

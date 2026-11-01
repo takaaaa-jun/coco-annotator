@@ -46,6 +46,16 @@ class AnnotatorData(Resource):
         
         if not current_user.can_edit(db_dataset):
             return {'message': 'Dataset edit permission required'}, 403
+        if getattr(db_dataset, 'category_sync_lock', None):
+            return {'message': 'カテゴリ同期中です。再読み込みしてください。'}, 409
+        if (getattr(db_dataset, 'category_review_taxonomy_revision', None)
+                != dataset.get('category_review_taxonomy_revision')):
+            return {'message': 'カテゴリ構成が変更されました。保存せず画像を再読み込みしてください。'}, 409
+        if getattr(db_dataset, 'category_review_catalog', None):
+            existing_ids = set(image_model.category_ids)
+            requested_ids = set(image.get('category_ids', []))
+            if not (requested_ids - existing_ids).issubset(set(db_dataset.categories)):
+                return {'message': '新しく付与できるのは同期済みの新カテゴリだけです。'}, 409
         db_dataset.update(annotate_url=dataset.get('annotate_url', ''))
         
         categories = CategoryModel.objects.all()
@@ -168,8 +178,12 @@ class AnnotatorId(Resource):
         if dataset is None:
             return {'success': False, 'message': 'Could not find associated dataset'}, 400
 
-        categories = CategoryModel.objects(deleted=False)\
-            .in_bulk(dataset.categories).items()
+        if getattr(dataset, 'category_sync_lock', None):
+            return {'message': 'カテゴリ同期中です。再読み込みしてください。'}, 409
+        # Retain legacy annotations in the editor, but never offer legacy IDs for new shapes.
+        existing_ids = AnnotationModel.objects(image_id=image_id, deleted=False).distinct('category_id')
+        visible_ids = list(set(dataset.categories) | set(existing_ids))
+        categories = CategoryModel.objects(deleted=False).in_bulk(visible_ids).items()
 
         # Get next and previous image
         images = ImageModel.objects(dataset_id=dataset.id, deleted=False)
@@ -201,6 +215,7 @@ class AnnotatorId(Resource):
         for category in categories:
             category = query_util.fix_ids(category[1])
             category_id = category.get('id')
+            category['selectable'] = category_id in dataset.categories
             
             annotations = []
             for annotation in all_annotations:

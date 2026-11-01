@@ -38,6 +38,7 @@
         />
 
         <i
+          v-if="category.selectable !== false"
           @click="createAnnotation"
           class="fa fa-plus category-icon"
           style="float: right; color: white; padding-right: 0"
@@ -244,6 +245,7 @@ export default {
      * Created
      */
     createAnnotation() {
+      if (this.category.selectable === false) return Promise.resolve(null);
       let parent = this.$parent;
       let annotationId = this.category.annotations.length;
       return Annotations.create({
@@ -461,7 +463,7 @@ export default {
       return this.category.name.toLowerCase().includes(search);
     },
     getCategoriesList() {
-      return this.allCategories.map(category => ({
+      return this.allCategories.filter(category => category.selectable !== false).map(category => ({
         value: category.id,
         text: category.name
       }));
