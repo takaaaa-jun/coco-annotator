@@ -13,6 +13,7 @@ from .admin import api as ns_admin
 from .tasks import api as ns_tasks
 from .undo import api as ns_undo
 from .info import api as ns_info
+from .category_review import api as ns_category_review
 
 from config import Config
 
@@ -41,4 +42,5 @@ api.add_namespace(ns_undo)
 api.add_namespace(ns_models)
 api.add_namespace(ns_admin)
 api.add_namespace(ns_annotator)
+api.add_namespace(ns_category_review)
 

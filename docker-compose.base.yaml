@@ -7,6 +7,7 @@ services:
       SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
       SESSION_COOKIE_PATH: /coco-annotator/
       FILE_WATCHER: "true"
+      CATEGORY_REVIEW_CATALOG: ${CATEGORY_REVIEW_CATALOG:-}
     volumes:
       - ./datasets:/datasets
       - ./models:/models

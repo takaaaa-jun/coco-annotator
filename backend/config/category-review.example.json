@@ -1,0 +1,18 @@
+{
+  "version": "catalog-1",
+  "datasetId": 2,
+  "sourceCategories": [
+    { "id": 1, "name": "元カテゴリA", "aliases": ["original A"] },
+    { "id": 2, "name": "元カテゴリB", "aliases": ["original B"] },
+    { "id": 3, "name": "元カテゴリC", "aliases": [] }
+  ],
+  "targetCategories": [
+    { "id": 101, "name": "テスト1", "aliases": ["パン", "bread"] },
+    { "id": 102, "name": "テスト2", "aliases": ["ご飯", "rice"] },
+    { "id": 103, "name": "テスト3", "aliases": ["麺", "noodle"] }
+  ],
+  "mappings": [
+    { "sourceCategoryId": 1, "targetCategoryId": 101 },
+    { "sourceCategoryId": 2, "targetCategoryId": 102 }
+  ]
+}
