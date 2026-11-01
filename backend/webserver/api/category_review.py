@@ -10,7 +10,7 @@ from flask_restplus import Namespace, Resource
 
 from database import AnnotationModel, CategoryModel, ImageModel
 from ..util.category_review import (
-    fingerprint, is_box, positive_id, replacement_metadata, serialize_box, validate_catalog,
+    fingerprint, has_geometry, original_category, positive_id, replacement_metadata, serialize_box, validate_catalog,
 )
 from ..util.review_lock import image_write_lock
 
@@ -74,12 +74,19 @@ class ImageReview(Resource):
     @login_required
     def get(self, image_id):
         try:
-            _, dataset = load_catalog()
-            image = permitted_image(image_id, dataset)
-            documents = AnnotationModel._get_collection().find({'image_id': image.id, 'deleted': False})
+            # Referencing saved categories does not require a replacement catalog.
+            image = current_user.images.filter(id=image_id, deleted=False).first()
+            if image is None:
+                raise ReviewError('画像へのアクセス権がないか、画像がありません。', 404)
+            dataset = current_user.datasets.filter(id=image.dataset_id, deleted=False).first()
+            if dataset is None:
+                raise ReviewError('対象データセットへのアクセス権がありません。', 403)
+            documents = [doc for doc in AnnotationModel._get_collection().find({'image_id': image.id, 'deleted': False}) if has_geometry(doc)]
+            category_ids = {doc['category_id'] for doc in documents} | {original_category(doc) for doc in documents}
+            categories = [{'id': category.id, 'name': category.name, 'aliases': []} for category in CategoryModel.objects(id__in=list(category_ids))]
             return {'datasetId': dataset.id, 'imageId': image.id, 'fileName': image.file_name,
                     'width': image.width, 'height': image.height,
-                    'boxes': [serialize_box(doc) for doc in documents if is_box(doc)]}
+                    'boxes': [serialize_box(doc) for doc in documents], 'categories': categories}
         except (ReviewError, ValueError) as error:
             return failure(error)
 

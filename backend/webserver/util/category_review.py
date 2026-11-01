@@ -56,11 +56,15 @@ def fingerprint(data):
     return hashlib.sha256(json.dumps(data, sort_keys=True, default=str, separators=(',', ':')).encode('utf-8')).hexdigest()
 
 
-def is_box(document):
+def has_geometry(document):
     bbox = document.get('bbox', [])
-    return (document.get('isbbox') is True and isinstance(bbox, list) and len(bbox) == 4
+    return (isinstance(bbox, list) and len(bbox) == 4
             and all(isinstance(n, (float, int)) and not isinstance(n, bool) and math.isfinite(n) for n in bbox)
             and bbox[2] > 0 and bbox[3] > 0)
+
+
+def is_box(document):
+    return document.get('isbbox') is True and has_geometry(document)
 
 
 def original_category(document):
@@ -77,7 +81,7 @@ def serialize_box(document):
     return {
         'id': document['_id'], 'imageId': document['image_id'],
         'categoryId': document['category_id'], 'originalCategoryId': original_category(document),
-        'bbox': document['bbox'], 'revision': fingerprint(document),
+        'bbox': document['bbox'], 'revision': fingerprint(document), 'isBox': is_box(document),
     }
 
 

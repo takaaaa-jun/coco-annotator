@@ -246,7 +246,7 @@ export default {
     createAnnotation() {
       let parent = this.$parent;
       let annotationId = this.category.annotations.length;
-      Annotations.create({
+      return Annotations.create({
         image_id: parent.image.id,
         category_id: this.category.id,
       }).then(response => {

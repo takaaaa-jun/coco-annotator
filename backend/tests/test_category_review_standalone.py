@@ -156,6 +156,28 @@ class ApiTests(unittest.TestCase):
         del os.environ['CATEGORY_REVIEW_CATALOG']
         self.assertEqual(self.client.get('/api/category-review/catalog', headers=self.headers).status_code, 503)
 
+    def test_reference_does_not_require_replacement_catalog(self):
+        del os.environ['CATEGORY_REVIEW_CATALOG']
+        response = self.client.get('/api/category-review/images/4001', headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        image = json.loads(response.data)
+        self.assertEqual(len(image['boxes']), 2)
+        self.assertEqual(image['categories'][0]['name'], 'Original A')
+
+    def test_polygons_are_visible_but_not_replaceable(self):
+        self.models[0]._get_collection().update_one({'_id': 90001}, {'$set': {'isbbox': False}})
+        response = self.client.get('/api/category-review/images/4001', headers=self.headers)
+        boxes = json.loads(response.data)['boxes']
+        self.assertEqual(len(boxes), 2)
+        self.assertFalse(next(box for box in boxes if box['id'] == 90001)['isBox'])
+        self.assertEqual(self.put(self.payload()).status_code, 400)
+
+    def test_reference_requires_image_access_even_without_catalog(self):
+        del os.environ['CATEGORY_REVIEW_CATALOG']
+        self.models[3]._get_collection().update_one({'_id': 4001}, {'$set': {'dataset_id': 99}})
+        response = self.client.get('/api/category-review/images/4001', headers=self.headers)
+        self.assertEqual(response.status_code, 404)
+
     def test_only_one_box_changes_and_stale_retry_is_rejected(self):
         data = self.payload()
         self.assertEqual(self.put(data).status_code, 200)
