@@ -42,7 +42,9 @@ def main():
     result = helper.synchronize(get_db(), data, create, bindings, args.apply)
     if args.apply:
         print(json.dumps({'datasetId': result['datasetId'], 'targetCategories': len(result['targetCategories']),
-                          'mappings': len(result['mappings']), 'applied': True}))
+                          'mappings': len(result['mappings']), 'actualSourceCategories': len(result['sourceCategories']),
+                          'replacementChoices': sum(len(row.get('candidateTargetCategoryIds', [row['targetCategoryId']])) for row in result['mappings']),
+                          'ambiguousMappings': sum(row.get('requiresChoice', False) for row in result['mappings']), 'applied': True}))
     else:
         print(json.dumps(result))
         print('Preview only. Add --apply to activate verified new categories.')

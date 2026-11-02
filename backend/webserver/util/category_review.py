@@ -41,6 +41,18 @@ def validate_catalog(data):
             raise ValueError('対応表の形式が不正です。')
         source = positive_id(row.get('sourceCategoryId'))
         target = positive_id(row.get('targetCategoryId'))
+        candidates = row.get('candidateTargetCategoryIds', [target])
+        if not isinstance(candidates, list) or not candidates:
+            raise ValueError('置換候補の形式が不正です。')
+        for candidate in candidates:
+            if positive_id(candidate) not in ids['targetCategories']:
+                raise ValueError('対応表に存在しない置換候補があります。')
+        if len(set(candidates)) != len(candidates) or target not in candidates:
+            raise ValueError('置換候補の形式が不正です。')
+        if 'requiresChoice' in row and not isinstance(row['requiresChoice'], bool):
+            raise ValueError('候補選択フラグが不正です。')
+        if len(candidates) > 1 and row.get('requiresChoice') is not True:
+            raise ValueError('複数の置換候補は明示的な選択が必要です。')
         if source not in ids['sourceCategories'] or target not in ids['targetCategories']:
             raise ValueError('対応表に存在しないカテゴリがあります。')
         if source in mapped:
@@ -85,13 +97,15 @@ def serialize_box(document):
     }
 
 
-def replacement_metadata(document, catalog, target_id, username, timestamp):
+def replacement_metadata(document, catalog, target_id, username, timestamp, choice_confirmed=False):
     if not is_box(document):
         raise ValueError('矩形以外のアノテーションは置換できません。')
     source = original_category(document)
     mapping = next((m for m in catalog['mappings'] if m['sourceCategoryId'] == source), None)
-    if mapping is None or mapping['targetCategoryId'] != target_id:
+    if mapping is None or target_id not in mapping.get('candidateTargetCategoryIds', [mapping['targetCategoryId']]):
         raise ValueError('対応表と置換先が一致しません。')
+    if mapping.get('requiresChoice') and not choice_confirmed:
+        raise ValueError('複数の候補があります。内容を確認して置換先を選択してください。')
     if document['category_id'] != source:
         raise ValueError('元カテゴリから変更済みです。再読み込みして確認してください。')
     metadata = copy.deepcopy(document.get('metadata', {}))
@@ -104,4 +118,6 @@ def replacement_metadata(document, catalog, target_id, username, timestamp):
         'catalog_version': catalog['version'], 'previous_category_id': document['category_id'],
         'target_category_id': target_id, 'changed_by': username, 'changed_at': timestamp,
     }
+    if 'externalIds' in source_row:
+        metadata['category_review']['original_external_category_ids'] = list(source_row['externalIds'])
     return metadata
