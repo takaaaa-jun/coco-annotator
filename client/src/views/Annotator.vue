@@ -447,7 +447,7 @@ export default {
       data.image.category_ids = this.image.categoryIds;
 
       axios
-        .post(process.env.BASE_URL + "api/annotator/data", JSON.stringify(data))
+        .post(process.env.BASE_URL + "api/annotator/data", data)
         .then(() => {
           //TODO: updateUser
           if (callback != null) callback();

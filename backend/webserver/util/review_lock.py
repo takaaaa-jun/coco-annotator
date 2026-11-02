@@ -2,6 +2,7 @@
 import datetime
 import functools
 import uuid
+from urllib.parse import urlsplit
 
 from flask import request
 from flask_login import current_user
@@ -12,7 +13,12 @@ def image_write_lock(review=False):
     def decorate(function):
         @functools.wraps(function)
         def wrapped(*args, **kwargs):
-            data = request.get_json(silent=True)
+            # Old editor bundles sent JSON text with form Content-Type. Support that
+            # same-origin save format without relaxing the category-review API.
+            origin = request.headers.get('Origin')
+            if origin and urlsplit(origin).netloc != request.host:
+                return {'message': '同じホストの編集画面から保存してください。'}, 403
+            data = request.get_json(force=not review, silent=True)
             if not isinstance(data, dict):
                 return {'message': 'JSONオブジェクトが必要です。'}, 400
             image_data = data.get('image', {})

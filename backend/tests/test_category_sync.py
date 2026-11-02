@@ -352,6 +352,36 @@ class SyncApiTests(unittest.TestCase):
         response = self.client.post('/api/annotator/data', json={'image': {'id': 4001}, 'dataset': {}}, headers=self.headers)
         self.assertEqual(response.status_code, 409)
 
+    def test_editor_saves_json_and_legacy_string_body(self):
+        self.activate()
+        loaded = self.client.get('/api/annotator/data/4001', headers=self.headers).get_json()
+        payload = {'image': {'id': 4001, 'category_ids': [1], 'metadata': {}},
+                   'dataset': loaded['dataset'], 'categories': []}
+        before = list(self.db.annotation_model.find())
+        for content_type in ('application/json', 'application/x-www-form-urlencoded', 'text/plain'):
+            response = self.client.post('/api/annotator/data', data=json.dumps(payload),
+                                        content_type=content_type, headers=self.headers)
+            self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(list(self.db.annotation_model.find()), before)
+
+    def test_editor_legacy_body_rejects_cross_origin_and_invalid_json(self):
+        self.activate()
+        before = list(self.db.annotation_model.find())
+        response = self.client.post('/api/annotator/data', data='{"image":{"id":4001}}',
+                                    content_type='text/plain', headers=dict(self.headers, Origin='https://other.example'))
+        self.assertEqual(response.status_code, 403)
+        for raw in ('not json', '[]', 'null'):
+            response = self.client.post('/api/annotator/data', data=raw, content_type='text/plain', headers=self.headers)
+            self.assertEqual(response.status_code, 400)
+        self.assertEqual(list(self.db.annotation_model.find()), before)
+
+    def test_review_endpoint_still_requires_json_content_type(self):
+        self.activate()
+        payload = self.payload()
+        response = self.client.put('/api/category-review/annotations/90001/category', data=json.dumps(payload),
+                                   content_type='application/x-www-form-urlencoded', headers=self.headers)
+        self.assertEqual(response.status_code, 400)
+
     def test_permissions_origin_and_stale_geometry(self):
         self.activate()
         self.assertEqual(self.client.get('/api/category-review/catalog').status_code, 401)
