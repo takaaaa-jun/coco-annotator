@@ -154,7 +154,8 @@ class ReplaceCategory(Resource):
                 raise ReviewError('対象ボックスがありません。', 404)
             if data.get('expectedRevision') != fingerprint(document) or data['expectedCategoryId'] != document['category_id']:
                 raise ReviewError('ボックスが更新されています。再読み込みして確認してください。', 409)
-            metadata = replacement_metadata(document, catalog, data['targetCategoryId'], current_user.username, datetime.datetime.utcnow().isoformat() + 'Z')
+            metadata = replacement_metadata(document, catalog, data['targetCategoryId'], current_user.username,
+                datetime.datetime.utcnow().isoformat() + 'Z', choice_confirmed=data.get('choiceConfirmed') is True)
             # Atomic compare-and-set on the exact persisted snapshot. Geometry is never written here.
             image.update(inc__category_review_revision=1)
             changed = collection.update_one(document, {'$set': {'category_id': data['targetCategoryId'], 'metadata': metadata}})

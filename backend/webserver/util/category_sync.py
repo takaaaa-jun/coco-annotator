@@ -11,6 +11,11 @@ def fingerprint(value):
                                     separators=(',', ':')).encode('utf-8')).hexdigest()
 
 
+def whitespace_name(value):
+    # Whitespace differences are not a spelling/translation heuristic.
+    return ' '.join(value.split()) if isinstance(value, str) else None
+
+
 def validate_blueprint(data):
     if not isinstance(data, dict) or data.get('schemaVersion') != 1 or data.get('taxonomy') != 'check-annotator':
         raise ValueError('Unsupported category blueprint.')
@@ -64,18 +69,44 @@ def plan_sync(db, data, source_bindings=None):
     bindings = source_bindings or {}
     if set(bindings) - set(str(key) for key in sources):
         raise ValueError('Source bindings contain unknown external IDs.')
-    actual_sources = []
-    source_ids = {}
-    # ID is only a proposed binding. Exact names are checked even for explicit bindings.
+    previous = dataset.get('category_review_catalog') or {}
+    scope = set(dataset.get('categories', [])) | set(dataset.get('category_review_previous_categories', []))
+    scope.update(row['id'] for row in previous.get('sourceCategories', []))
+    available = list(db.category_model.find({'_id': {'$in': list(scope)}, 'deleted': {'$ne': True}}))
+    by_id = {row['_id']: row for row in available}
+    by_name, by_whitespace_name = {}, {}
+    for row in available:
+        if (row.get('metadata') or {}).get('check_annotator', {}).get('taxonomy') == data['taxonomy']:
+            continue
+        by_name.setdefault(row['name'], []).append(row)
+        by_whitespace_name.setdefault(whitespace_name(row['name']), []).append(row)
+    actual_sources, source_ids, external_ids = [], {}, {}
+    # Keep real COCO IDs untouched. An ID is a proposed binding, not an equality
+    # between taxonomies. Fall back only to a unique exact name within this dataset.
     for external_id, row in sorted(sources.items()):
+        explicit = str(external_id) in bindings
         actual_id = bindings.get(str(external_id), external_id)
-        if type(actual_id) is not int or actual_id <= 0 or actual_id in source_ids.values():
-            raise ValueError('Invalid or duplicate actual source binding.')
-        actual = db.category_model.find_one({'_id': actual_id, 'deleted': {'$ne': True}})
-        if actual is None or actual.get('name') != row['name']:
-            raise ValueError('Source ID/name mismatch for external ID {}.'.format(external_id))
+        if type(actual_id) is not int or actual_id <= 0:
+            raise ValueError('Invalid actual source binding.')
+        actual = by_id.get(actual_id)
+        if actual is None or whitespace_name(actual.get('name')) != whitespace_name(row['name']):
+            matches = by_name.get(row['name'], []) or by_whitespace_name.get(whitespace_name(row['name']), [])
+            if explicit or len(matches) != 1:
+                raise ValueError('Source ID/name mismatch or ambiguous exact name for external ID {}.'.format(external_id))
+            actual = matches[0]
+            actual_id = actual['_id']
         source_ids[external_id] = actual_id
-        actual_sources.append({'id': actual_id, 'name': actual['name'], 'aliases': []})
+        external_ids.setdefault(actual_id, []).append(external_id)
+    resolved_mappings = []
+    original_mappings = {row['sourceExternalId']: row['targetKey'] for row in data['mappings']}
+    for actual_id, identifiers in sorted(external_ids.items()):
+        actual_sources.append({'id': actual_id, 'name': by_id[actual_id]['name'], 'aliases': [], 'externalIds': identifiers})
+        keys = sorted(set(original_mappings[identifier] for identifier in identifiers if identifier in original_mappings))
+        if len(identifiers) > 1 and keys and any(identifier not in original_mappings for identifier in identifiers):
+            raise ValueError('Merged legacy IDs {} include an unmapped category; define every replacement before syncing.'.format(identifiers))
+        if keys:
+            resolved_mappings.append({'sourceCategoryId': actual_id, 'targetKeys': keys,
+                                      'requiresChoice': len(keys) > 1})
     actual_targets, missing = {}, []
     for key, row in sorted(targets.items()):
         found = list(db.category_model.find({'metadata.check_annotator.taxonomy': data['taxonomy'],
@@ -101,14 +132,17 @@ def plan_sync(db, data, source_bindings=None):
     if unknown:
         raise ValueError('Dataset contains unrelated category IDs; resolve them before replacing selectable categories.')
     return {'dataset': dataset, 'sources': actual_sources, 'sourceIds': source_ids,
-            'targetIds': actual_targets, 'missing': missing, 'targets': targets}
+            'targetIds': actual_targets, 'missing': missing, 'targets': targets, 'resolvedMappings': resolved_mappings}
 
 
 def synchronize(db, data, create_category, source_bindings=None, apply=False):
     plan = plan_sync(db, data, source_bindings)
     if not apply:
         return {'datasetId': data['datasetId'], 'createCategories': len(plan['missing']),
-                'targetCategories': len(plan['targets']), 'mappings': len(data['mappings'])}
+                'targetCategories': len(plan['targets']), 'mappings': len(plan['resolvedMappings']),
+                'sourceRows': len(data['sourceCategories']), 'actualSourceCategories': len(plan['sources']),
+                'replacementChoices': len(data['mappings']),
+                'ambiguousMappings': sum(row['requiresChoice'] for row in plan['resolvedMappings'])}
     # Registry activation is a single compare-and-set on the dataset. Partial category
     # creation can leave reusable targets but never activates half a catalog.
     token = uuid.uuid4().hex
@@ -132,8 +166,10 @@ def synchronize(db, data, create_category, source_bindings=None, apply=False):
                     'managedKey': key} for key, row in sorted(plan['targets'].items())]
         catalog = {'version': data['version'], 'datasetId': data['datasetId'],
                    'sourceCategories': plan['sources'], 'targetCategories': targets,
-                   'mappings': [{'sourceCategoryId': plan['sourceIds'][row['sourceExternalId']],
-                                 'targetCategoryId': plan['targetIds'][row['targetKey']]} for row in data['mappings']],
+                   'mappings': [{'sourceCategoryId': row['sourceCategoryId'],
+                                 'targetCategoryId': plan['targetIds'][row['targetKeys'][0]],
+                                 'candidateTargetCategoryIds': [plan['targetIds'][key] for key in row['targetKeys']],
+                                 'requiresChoice': row['requiresChoice']} for row in plan['resolvedMappings']],
                    'managedTaxonomy': data['taxonomy']}
         before = plan['dataset']
         if before.get('category_review_catalog') == catalog and set(before.get('categories', [])) == set(plan['targetIds'].values()):

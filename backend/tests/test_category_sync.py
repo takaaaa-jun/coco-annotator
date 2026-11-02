@@ -271,7 +271,7 @@ class SyncApiTests(unittest.TestCase):
         self.db.category_model.delete_one({'_id': 20})
         self.db.dataset_model.update_one({'_id': 2}, {'$set': {'categories': [1, 200, 21, 38]}})
         with self.assertRaises(ValueError):
-            self.activate()
+            helper.synchronize(self.db, self.data, self.create, {'20': 1}, apply=True)
         catalog = helper.synchronize(self.db, self.data, self.create, {'20': 200}, apply=True)
         self.assertIn(200, [row['sourceCategoryId'] for row in catalog['mappings']])
 
@@ -412,13 +412,89 @@ class SyncApiTests(unittest.TestCase):
         self.activate()
         catalog = self.client.get('/api/category-review/catalog', headers=self.headers).get_json()
         self.assertEqual(len(catalog['sourceCategories']), 256)
-        self.assertEqual(len(catalog['mappings']), 41)
+        self.assertEqual(len(catalog['mappings']), 42)
         for mapping in catalog['mappings']:
             self.db.annotation_model.update_one({'_id': 90001}, {'$set': {'category_id': mapping['sourceCategoryId'], 'metadata': {'custom': 'keep'}}})
             payload = self.payload()
             self.assertEqual(payload['targetCategoryId'], mapping['targetCategoryId'])
             self.assertEqual(self.put(payload).status_code, 200)
         self.assertEqual(self.db.annotation_model.find_one({'_id': 90002})['category_id'], 1)
+
+    @unittest.skipUnless(os.environ.get('COCO_CATEGORY_TEST_BLUEPRINT'), 'Full MySQL export not provided')
+    def test_real_255_category_layout_and_omelet_choice(self):
+        for collection in self.db.list_collection_names():
+            self.db[collection].drop()
+        self.data = json.loads(Path(os.environ['COCO_CATEGORY_TEST_BLUEPRINT']).read_text(encoding='utf-8'))
+        self.seed(self.data)
+        self.db.category_model.drop()
+        by_name = {}
+        for row in self.data['sourceCategories']:
+            actual_name = ' '.join(row['name'].split())
+            if actual_name not in by_name:
+                by_name[actual_name] = len(by_name) + 1
+                self.db.category_model.insert_one({'_id': by_name[actual_name], 'name': actual_name,
+                    'creator': 'system', 'deleted': False, 'metadata': {}})
+        self.db.dataset_model.update_one({'_id': 2}, {'$set': {'categories': list(by_name.values())}})
+        legacy_before = list(self.db.category_model.find().sort('_id'))
+        self.assertEqual(len(legacy_before), 255)
+        self.assertEqual(self.db.category_model.find_one({'_id': 67})['name'], 'egg sunny-side up')
+        self.assertEqual(self.db.category_model.find_one({'_id': 165})['name'],
+                         'dish consisting of stir-fried potato, eggplant and green pepper')
+        preview = helper.synchronize(self.db, self.data, self.create)
+        self.assertEqual(preview['actualSourceCategories'], 255)
+        self.assertEqual(preview['replacementChoices'], 42)
+        self.assertEqual(preview['mappings'], 41)
+        self.assertEqual(preview['ambiguousMappings'], 1)
+        self.activate()
+        self.assertEqual(list(self.db.category_model.find({'_id': {'$lte': 255}}).sort('_id')), legacy_before)
+        response = self.client.get('/api/category-review/catalog', headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        catalog = response.get_json()
+        source166 = next(row for row in catalog['sourceCategories'] if 166 in row['externalIds'])
+        self.assertEqual(source166['id'], 165)
+        mapping = next(row for row in catalog['mappings'] if row['sourceCategoryId'] == by_name['omelet'])
+        self.assertTrue(mapping['requiresChoice'])
+        names = {row['id']: row['name'] for row in catalog['targetCategories']}
+        self.assertEqual({names[key] for key in mapping['candidateTargetCategoryIds']}, {'オムレツ', 'だし巻き卵'})
+        self.db.annotation_model.update_one({'_id': 90001}, {'$set': {'category_id': by_name['omelet'], 'metadata': {'custom': 'keep'}}})
+        payload = self.payload()
+        self.assertEqual(self.put(payload).status_code, 400)  # Cached/old clients may not pick the first candidate.
+        for target in mapping['candidateTargetCategoryIds']:
+            self.db.annotation_model.update_one({'_id': 90001}, {'$set': {'category_id': by_name['omelet'], 'metadata': {'custom': 'keep'}}})
+            payload = self.payload()
+            payload.update(targetCategoryId=target, choiceConfirmed=True)
+            self.assertEqual(self.put(payload).status_code, 200)
+            saved = self.db.annotation_model.find_one({'_id': 90001})
+            self.assertEqual(saved['metadata']['category_review']['original_external_category_ids'], [40, 67])
+            self.assertEqual(saved['bbox'], [10, 20, 100, 80])
+        # Exercise every actual COCO source and every choice in the exact deployed layout.
+        for resolved in catalog['mappings']:
+            for target in resolved['candidateTargetCategoryIds']:
+                self.db.annotation_model.update_one({'_id': 90001}, {'$set': {
+                    'category_id': resolved['sourceCategoryId'], 'metadata': {'custom': 'keep'}}})
+                payload = self.payload()
+                payload.update(targetCategoryId=target, choiceConfirmed=resolved['requiresChoice'])
+                self.assertEqual(self.put(payload).status_code, 200)
+                self.assertEqual(self.db.annotation_model.find_one({'_id': 90001})['bbox'], [10, 20, 100, 80])
+        self.assertEqual(self.db.annotation_model.find_one({'_id': 90002})['category_id'], 1)
+        self.assertEqual(self.activate()['mappings'], catalog['mappings'])
+
+    def test_ambiguous_duplicate_name_without_matching_id_is_rejected(self):
+        self.db.category_model.insert_one({'_id': 300, 'name': 'udon noodle', 'creator': 'other', 'deleted': False})
+        self.db.category_model.update_one({'_id': 20}, {'$set': {'_id_unrelated': True}})
+        self.db.category_model.update_one({'_id': 20}, {'$set': {'name': 'wrong'}})
+        self.db.category_model.insert_one({'_id': 301, 'name': 'udon noodle', 'creator': 'another', 'deleted': False})
+        self.db.dataset_model.update_one({'_id': 2}, {'$set': {'categories': [1, 20, 21, 38, 300, 301]}})
+        with self.assertRaises(ValueError):
+            self.activate()
+
+    def test_whitespace_only_match_must_still_be_unique(self):
+        self.db.category_model.update_one({'_id': 20}, {'$set': {'name': 'wrong'}})
+        for identifier, name in ((300, 'udon   noodle'), (301, 'udon noodle ')):
+            self.db.category_model.insert_one({'_id': identifier, 'name': name, 'creator': 'other', 'deleted': False})
+        self.db.dataset_model.update_one({'_id': 2}, {'$set': {'categories': [1, 20, 21, 38, 300, 301]}})
+        with self.assertRaises(ValueError):
+            self.activate()
 
 
 if __name__ == '__main__':
