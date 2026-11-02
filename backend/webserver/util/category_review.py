@@ -84,6 +84,10 @@ def original_category(document):
     if not isinstance(metadata, dict):
         raise ValueError('ボックスのメタデータの形式が不正です。')
     provenance = metadata.get('category_review', {})
+    # Older Metadata.vue converted nested objects to this literal on editor save.
+    # The original ID is lost; use the saved current category without inventing history.
+    if provenance == '[object Object]':
+        return document['category_id']
     if not isinstance(provenance, dict):
         raise ValueError('category_reviewメタデータの形式が不正です。')
     return provenance.get('original_category_id', document['category_id'])
@@ -95,6 +99,16 @@ def serialize_box(document):
         'categoryId': document['category_id'], 'originalCategoryId': original_category(document),
         'bbox': document['bbox'], 'revision': fingerprint(document), 'isBox': is_box(document),
     }
+
+
+def editor_metadata(stored, incoming):
+    """Keep server-owned provenance, including saves from already-open old clients."""
+    result = copy.deepcopy(incoming or {})
+    if 'category_review' in (stored or {}):
+        result['category_review'] = copy.deepcopy(stored['category_review'])
+    else:
+        result.pop('category_review', None)
+    return result
 
 
 def replacement_metadata(document, catalog, target_id, username, timestamp, choice_confirmed=False):
@@ -110,7 +124,7 @@ def replacement_metadata(document, catalog, target_id, username, timestamp, choi
         raise ValueError('元カテゴリから変更済みです。再読み込みして確認してください。')
     metadata = copy.deepcopy(document.get('metadata', {}))
     previous = metadata.get('category_review')
-    if previous is not None and not isinstance(previous, dict):
+    if previous is not None and previous != '[object Object]' and not isinstance(previous, dict):
         raise ValueError('category_reviewメタデータの形式が不正です。')
     source_row = next(c for c in catalog['sourceCategories'] if c['id'] == source)
     metadata['category_review'] = {

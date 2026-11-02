@@ -64,6 +64,23 @@ class PureTests(unittest.TestCase):
         self.assertEqual(metadata['category_review']['original_category_id'], 1)
         self.assertEqual(helper.original_category(dict(BOX, category_id=101, metadata=metadata)), 1)
 
+    def test_legacy_editor_string_does_not_block_image_review(self):
+        box = dict(BOX, category_id=101, metadata={'category_review': '[object Object]'})
+        self.assertEqual(helper.serialize_box(box)['originalCategoryId'], 101)
+        self.assertEqual(box['metadata']['category_review'], '[object Object]')
+        with self.assertRaises(ValueError):
+            helper.original_category(dict(BOX, metadata={'category_review': 'invalid'}))
+
+    def test_editor_save_preserves_server_provenance(self):
+        stored = helper.replacement_metadata(BOX, CATALOG, 101, 'reviewer', 'now')
+        for incoming in ({'custom': 'edited', 'category_review': '[object Object]'},
+                         {'custom': 'edited'}, {'category_review': {'original_category_id': 999}}):
+            result = helper.editor_metadata(stored, incoming)
+            self.assertEqual(result['category_review'], stored['category_review'])
+            result['category_review']['changed_by'] = 'changed'
+            self.assertEqual(stored['category_review']['changed_by'], 'reviewer')
+        self.assertEqual(helper.editor_metadata({}, {'category_review': {'original_category_id': 999}}), {})
+
     def test_non_box_and_unmapped_replacements_are_rejected(self):
         for box, target in ((dict(BOX, isbbox=False), 101), (BOX, 102), (dict(BOX, category_id=3), 101)):
             with self.assertRaises(ValueError):

@@ -82,7 +82,13 @@ export default {
   },
   methods: {
     export() {
+      // Structured metadata is managed by the server, not by text inputs.
       let metadata = {};
+      Object.keys(this.metadata || {}).forEach(key => {
+        const value = this.metadata[key];
+        if (key !== this.exclude && value !== null && typeof value === "object")
+          metadata[key] = JSON.parse(JSON.stringify(value));
+      });
 
       this.metadataList.forEach(object => {
         if (object.key.length > 0) {
@@ -103,12 +109,14 @@ export default {
       this.metadataList.push({ key: "", value: "" });
     },
     loadMetadata() {
+      this.metadataList = [];
       if (this.metadata != null) {
         for (var key in this.metadata) {
           if (!this.metadata.hasOwnProperty(key)) continue;
           if (key === this.exclude) continue;
 
           let value = this.metadata[key];
+          if (value !== null && typeof value === "object") continue;
 
           if (value == null) value = "";
           else value = value.toString();

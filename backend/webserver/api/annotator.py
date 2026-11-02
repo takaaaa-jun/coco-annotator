@@ -15,6 +15,7 @@ from database import (
 )
 
 from ..util.review_lock import image_write_lock
+from ..util.category_review import editor_metadata
 
 api = Namespace('annotator', description='Annotator related operations')
 
@@ -118,7 +119,7 @@ class AnnotatorData(Resource):
                     inc__milliseconds=total_time,
                     set__isbbox=annotation.get('isbbox', False),
                     set__keypoints=keypoints,
-                    set__metadata=annotation.get('metadata'),
+                    set__metadata=editor_metadata(db_annotation.metadata, annotation.get('metadata')),
                     set__color=annotation.get('color')
                 )
 
