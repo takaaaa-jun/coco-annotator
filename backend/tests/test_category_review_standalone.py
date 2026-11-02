@@ -237,13 +237,49 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.put(data, dict(self.headers, Origin='https://other.example')).status_code, 403)
         self.assertEqual(self.put(dict(data, targetCategoryId=102)).status_code, 400)
 
-    def test_active_editor_and_busy_lock_are_rejected(self):
+    def test_presence_does_not_block_replacement_or_allow_stale_save(self):
         data = self.payload()
         image = self.models[3]._get_collection()
-        image.update_one({'_id': 4001}, {'$set': {'annotating': ['reviewer']}})
+        image.update_one({'_id': 4001}, {'$set': {'annotating': ['reviewer', 'other-user']}})
+        self.assertEqual(self.put(data).status_code, 200)
+        response = self.client.post('/api/test-editor-save', json={'image': {'id': 4001}}, headers=self.headers)
+        self.assertEqual(response.status_code, 409)
+
+    def test_busy_write_lock_is_still_rejected(self):
+        data = self.payload()
+        self.models[3]._get_collection().update_one({'_id': 4001}, {'$set': {'category_review_lock': {'token': 'other'}}})
         self.assertEqual(self.put(data).status_code, 409)
-        image.update_one({'_id': 4001}, {'$set': {'annotating': [], 'category_review_lock': {'token': 'other'}}})
-        self.assertEqual(self.put(data).status_code, 409)
+
+    def test_two_editors_and_repeated_save(self):
+        first = self.client.post('/api/test-editor-save', json={'image': {'id': 4001}}, headers=self.headers)
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(json.loads(first.data)['category_review_revision'], 1)
+        stale = self.client.post('/api/test-editor-save', json={'image': {'id': 4001}}, headers=self.headers)
+        self.assertEqual(stale.status_code, 409)
+        second = self.client.post('/api/test-editor-save', json={'image': {'id': 4001, 'category_review_revision': 1}}, headers=self.headers)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(json.loads(second.data)['category_review_revision'], 2)
+
+    def test_concurrent_saves_of_same_revision_have_one_winner(self):
+        import concurrent.futures
+        import threading
+        barrier = threading.Barrier(2)
+        def save():
+            with self.app.test_client() as client:
+                barrier.wait(timeout=5)
+                return client.post('/api/test-editor-save', json={'image': {'id': 4001}}, headers=self.headers).status_code
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(lambda _: save(), range(2)))
+        self.assertEqual(sorted(results), [200, 409])
+
+    def test_another_image_is_not_blocked_by_busy_image(self):
+        image = self.models[3]._get_collection()
+        image.insert_one({'_id': 4002, 'dataset_id': 2, 'deleted': False})
+        image.update_one({'_id': 4001}, {'$set': {'category_review_lock': {'token': 'busy'}}})
+        response = self.client.post('/api/test-editor-save', json={'image': {'id': 4002}}, headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(json.loads(response.data)['category_review_revision'], 1)
+        self.assertEqual(image.find_one({'_id': 4001})['category_review_lock']['token'], 'busy')
 
     def test_old_editor_cannot_overwrite_reviewed_data(self):
         self.assertEqual(self.put(self.payload()).status_code, 200)

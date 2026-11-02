@@ -39,8 +39,15 @@ def image_write_lock(review=False):
             try:
                 current = collection.find_one({'_id': image_id})
                 if not review and image_data.get('category_review_revision', 0) != current.get('category_review_revision', 0):
-                    return {'message': 'カテゴリ確認画面で画像が変更されました。保存せず画像を再読み込みしてください。'}, 409
-                return function(*args, **kwargs)
+                    return {'message': '他の操作で画像が更新されています。編集内容を確認し、画像を再読み込みしてください。'}, 409
+                # Reserve a new revision before any editor writes, so even a partial
+                # failure cannot be overwritten by another editor's old snapshot.
+                if not review:
+                    collection.update_one({'_id': image_id}, {'$inc': {'category_review_revision': 1}})
+                result = function(*args, **kwargs)
+                if not review and isinstance(result, dict) and result.get('success', result.get('saved', False)):
+                    result['category_review_revision'] = current.get('category_review_revision', 0) + 1
+                return result
             finally:
                 collection.update_one({'_id': image_id, 'category_review_lock.token': token}, {'$unset': {'category_review_lock': ''}})
         return wrapped

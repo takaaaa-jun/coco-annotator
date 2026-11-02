@@ -55,6 +55,31 @@ describe("editor save request format", () => {
     await http.post("/api/annotator/data", JSON.stringify({ image: { id: 4001 } }));
     expect(sent.headers["Content-Type"]).toMatch(/^application\/x-www-form-urlencoded/);
   });
+  it("uses the returned revision on the next save", async () => {
+    const payloads = [];
+    const http = { post: jest.fn((url, data) => {
+      payloads.push(JSON.parse(JSON.stringify(data)));
+      return Promise.resolve({ data: { success: true, category_review_revision: data.image.category_review_revision + 1 } });
+    }) };
+    const state = editor();
+    const save = component(http).methods.save;
+    save.call(state);
+    await new Promise(resolve => setImmediate(resolve));
+    save.call(state);
+    await new Promise(resolve => setImmediate(resolve));
+    expect(payloads.map(payload => payload.image.category_review_revision)).toEqual([3, 4]);
+    expect(state.categoryReviewRevision).toBe(5);
+  });
+  it("keeps the revision and does not navigate after a conflict", async () => {
+    const http = { post: jest.fn(() => Promise.reject({ response: { status: 409, data: { message: "画像が更新されています" } } })) };
+    const state = editor();
+    const callback = jest.fn();
+    component(http).methods.save.call(state, callback);
+    await new Promise(resolve => setImmediate(resolve));
+    expect(state.categoryReviewRevision).toBe(3);
+    expect(callback).not.toHaveBeenCalled();
+    expect(state.annotationLoadError).toBe("画像が更新されています");
+  });
   it("does not save incomplete image data", () => {
     const http = { post: jest.fn() };
     const state = editor();
