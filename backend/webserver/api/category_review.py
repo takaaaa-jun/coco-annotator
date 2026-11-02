@@ -146,8 +146,7 @@ class ReplaceCategory(Resource):
             if data['datasetId'] != dataset.id or data.get('catalogVersion') != catalog['version']:
                 raise ReviewError('対応表が変更されています。再読み込みしてください。', 409)
             image = permitted_image(data['imageId'], dataset)
-            if image.annotating:
-                raise ReviewError('画像編集中のユーザーがいます。編集内容を保存して画像を閉じてから再実行してください。', 409)
+            # Presence is advisory: the image write lock and revisions prevent overwrites.
             collection = AnnotationModel._get_collection()
             document = collection.find_one({'_id': annotation_id, 'image_id': image.id, 'deleted': False})
             if document is None:

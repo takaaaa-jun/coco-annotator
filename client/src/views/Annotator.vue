@@ -448,7 +448,11 @@ export default {
 
       axios
         .post(process.env.BASE_URL + "api/annotator/data", data)
-        .then(() => {
+        .then(response => {
+          if (Number.isSafeInteger(response.data.category_review_revision)) {
+            this.categoryReviewRevision = response.data.category_review_revision;
+          }
+          this.annotationLoadError = "";
           //TODO: updateUser
           if (callback != null) callback();
         })
