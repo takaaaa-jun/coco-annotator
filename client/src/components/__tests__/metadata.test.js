@@ -81,3 +81,19 @@ describe("Metadata.vue with metadata", () => {
     expect(wrapper.vm.export()).toEqual(metadata);
   });
 });
+
+
+describe("Metadata.vue structured values", () => {
+  it("preserves provenance and arrays across edits and reloads", async () => {
+    const provenance = { original_category_id: 1, target_category_id: 101 };
+    const metadata = { category_review: provenance, tags: [1, 2], custom: "before" };
+    const wrapper = shallowMount(Metadata, { propsData: { metadata } });
+    expect(wrapper.vm.metadataList).toEqual([{ key: "custom", value: "before" }]);
+    wrapper.vm.metadataList[0].value = "after";
+    expect(wrapper.vm.export()).toEqual({ ...metadata, custom: "after" });
+    expect(wrapper.vm.export().category_review).not.toBe(provenance);
+    await wrapper.setProps({ metadata: { ...metadata, custom: "reloaded" } });
+    expect(wrapper.vm.metadataList).toEqual([{ key: "custom", value: "reloaded" }]);
+    expect(wrapper.vm.export()).toEqual({ ...metadata, custom: "reloaded" });
+  });
+});
