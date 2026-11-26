@@ -12,10 +12,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--data', type=Path, required=True)
     parser.add_argument('--source-bindings', type=Path)
+    parser.add_argument('--previous-data', type=Path, help='Verified previous export, required for managed description updates or retired choices')
     parser.add_argument('--apply', action='store_true')
     args = parser.parse_args()
     data = json.loads(args.data.read_text(encoding='utf-8'))
     bindings = json.loads(args.source_bindings.read_text(encoding='utf-8')) if args.source_bindings else None
+    previous_data = json.loads(args.previous_data.read_text(encoding='utf-8')) if args.previous_data else None
     from database import CategoryModel, connect_mongo
     from mongoengine.connection import get_db
     # Import only pure helpers; importing webserver starts the application.
@@ -36,10 +38,9 @@ def main():
         sequence_id = '{}.{}'.format(sequence_name, field.name)
         db[field.collection_name].update_one({'_id': sequence_id},
             {'$max': {'next': highest['_id'] if highest else 0}}, upsert=True)
-        model = CategoryModel(name=name, supercategory=marker.get('parentName', ''), metadata={'check_annotator': marker})
-        model.save(force_insert=True)
+        model = CategoryModel.create_managed(name, marker)
         return model.id
-    result = helper.synchronize(get_db(), data, create, bindings, args.apply)
+    result = helper.synchronize(get_db(), data, create, bindings, args.apply, previous_data=previous_data)
     if args.apply:
         print(json.dumps({'datasetId': result['datasetId'], 'targetCategories': len(result['targetCategories']),
                           'mappings': len(result['mappings']), 'actualSourceCategories': len(result['sourceCategories']),

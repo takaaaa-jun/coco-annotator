@@ -25,6 +25,20 @@ class CategoryModel(DynamicDocument):
     keypoint_colors = ListField(default=[])
 
     @classmethod
+    def create_managed(cls, name, marker):
+        """Keep names reusable across managed levels without changing legacy IDs."""
+        if (marker.get('taxonomy') != 'check-annotator'
+                or not isinstance(marker.get('key'), str)
+                or not marker['key'].startswith(('5:', '6:'))):
+            raise ValueError('Invalid managed category identity.')
+        model = cls(name=name, supercategory=marker.get('parentName', ''),
+                    color=im.Color.random().hex, creator='check-annotator:' + marker['key'],
+                    metadata={'check_annotator': marker})
+        # Ordinary save() assigns the interactive owner (or system). The sync
+        # namespace avoids its unique(name, creator) collision between levels.
+        return super(CategoryModel, model).save(force_insert=True)
+
+    @classmethod
     def bulk_create(cls, categories):
 
         if not categories:

@@ -188,8 +188,7 @@ class SyncApiTests(unittest.TestCase):
         highest = self.db.category_model.find_one(sort=[('_id', -1)])
         self.db[field.collection_name].update_one({'_id': '{}.{}'.format(field.get_sequence_name(), field.name)},
             {'$max': {'next': highest['_id'] if highest else 0}}, upsert=True)
-        category = self.models.CategoryModel(name=name, supercategory=marker.get('parentName', ''), metadata={'check_annotator': marker})
-        category.save(force_insert=True)
+        category = self.models.CategoryModel.create_managed(name, marker)
         return category.id
 
     def activate(self):
@@ -212,6 +211,95 @@ class SyncApiTests(unittest.TestCase):
         self.assertEqual(preview['createCategories'], 3)
         self.assertEqual(list(self.db.category_model.find()), before)
         self.assertNotIn('category_review_catalog', self.db.dataset_model.find_one())
+
+    def test_description_upgrade_requires_verified_previous_data(self):
+        old = copy.deepcopy(self.data)
+        self.activate()
+        self.data['targetCategories'][0]['description'] = '更新後の説明'
+        sign(self.data)
+        before = list(self.db.category_model.find())
+        with self.assertRaises(ValueError):
+            self.activate()
+        preview = helper.synchronize(self.db, self.data, self.create, previous_data=old)
+        self.assertEqual(preview['updateDescriptions'], 1)
+        self.assertEqual(list(self.db.category_model.find()), before)
+        annotations = list(self.db.annotation_model.find())
+        result = helper.synchronize(self.db, self.data, self.create, apply=True, previous_data=old)
+        target = next(t for t in result['targetCategories'] if t['managedKey'] == '5:rice')
+        self.assertEqual(self.db.category_model.find_one({'_id': target['id']})['metadata']['check_annotator']['description'], '更新後の説明')
+        self.assertEqual(helper.synchronize(self.db, self.data, self.create, apply=True, previous_data=old), result)
+        self.assertEqual(list(self.db.annotation_model.find()), annotations)
+        self.assertEqual(helper.synchronize(self.db, self.data, self.create, previous_data=old)['updateDescriptions'], 0)
+
+    def test_previous_version_or_changed_identity_refuses_upgrade(self):
+        old = copy.deepcopy(self.data)
+        catalog = self.activate()
+        self.data['targetCategories'][0]['description'] = '更新'
+        sign(self.data)
+        wrong = copy.deepcopy(old)
+        wrong['targetCategories'][0]['description'] = '間違った変更前'
+        sign(wrong)
+        with self.assertRaisesRegex(ValueError, 'version'):
+            helper.synchronize(self.db, self.data, self.create, apply=True, previous_data=wrong)
+        target = next(t for t in catalog['targetCategories'] if t['managedKey'] == '5:rice')
+        self.db.category_model.update_one({'_id': target['id']}, {'$set': {'metadata.check_annotator.description': '別の編集'}})
+        with self.assertRaises(ValueError):
+            helper.synchronize(self.db, self.data, self.create, apply=True, previous_data=old)
+        self.assertEqual(self.db.dataset_model.find_one()['category_review_catalog'], catalog)
+
+    def test_retired_target_requires_previous_data_and_keeps_saved_box(self):
+        old = copy.deepcopy(self.data)
+        catalog = self.activate()
+        retired = next(t for t in catalog['targetCategories'] if t['managedKey'] == '5:rice')
+        self.db.annotation_model.update_one({'_id': 90001}, {'$set': {'category_id': retired['id']}})
+        annotations = list(self.db.annotation_model.find())
+        category = self.db.category_model.find_one({'_id': retired['id']})
+        self.data['targetCategories'] = [t for t in self.data['targetCategories'] if t['key'] != '5:rice']
+        self.data['mappings'][0]['targetKey'] = '5:udon'
+        sign(self.data)
+        with self.assertRaises(ValueError):
+            self.activate()
+        preview = helper.synchronize(self.db, self.data, self.create, previous_data=old)
+        self.assertEqual(preview['retireCategories'], 1)
+        result = helper.synchronize(self.db, self.data, self.create, apply=True, previous_data=old)
+        self.assertNotIn(retired['id'], self.db.dataset_model.find_one()['categories'])
+        self.assertEqual(self.db.category_model.find_one({'_id': retired['id']}), category)
+        self.assertEqual(list(self.db.annotation_model.find()), annotations)
+        self.assertEqual(self.client.get('/api/category-review/catalog', headers=self.headers).status_code, 200)
+        image = self.client.get('/api/category-review/images/4001', headers=self.headers).get_json()
+        self.assertIn(retired['id'], [c['id'] for c in image['categories']])
+        self.assertEqual(helper.synchronize(self.db, self.data, self.create, apply=True, previous_data=old), result)
+
+    def test_retirement_refuses_unknown_or_tampered_category(self):
+        old = copy.deepcopy(self.data)
+        catalog = self.activate()
+        retired = next(t for t in catalog['targetCategories'] if t['managedKey'] == '5:rice')
+        self.data['targetCategories'] = [t for t in self.data['targetCategories'] if t['key'] != '5:rice']
+        self.data['mappings'][0]['targetKey'] = '5:udon'
+        sign(self.data)
+        self.db.category_model.update_one({'_id': retired['id']}, {'$set': {'metadata.check_annotator.key': 'wrong'}})
+        with self.assertRaises(ValueError):
+            helper.synchronize(self.db, self.data, self.create, apply=True, previous_data=old)
+        self.assertEqual(self.db.dataset_model.find_one()['category_review_catalog'], catalog)
+
+    def test_actual_cli_description_update(self):
+        old = copy.deepcopy(self.data)
+        self.activate()
+        self.data['targetCategories'][0]['description'] = 'CLI更新'
+        sign(self.data)
+        with tempfile.TemporaryDirectory() as directory:
+            new_path, old_path = Path(directory) / 'new.json', Path(directory) / 'old.json'
+            new_path.write_text(json.dumps(self.data, ensure_ascii=False), encoding='utf-8')
+            old_path.write_text(json.dumps(old, ensure_ascii=False), encoding='utf-8')
+            wrapper = ('import collections,collections.abc,runpy; '
+                '[setattr(collections,n,getattr(collections.abc,n)) for n in '
+                '("Mapping","MutableMapping","Sequence","Hashable","Iterable") if not hasattr(collections,n)]; '
+                'runpy.run_path(' + repr(str(ROOT / 'scripts/sync_categories.py')) + ',run_name="__main__")')
+            environment = dict(os.environ, MONGODB_HOST=os.environ['COCO_CATEGORY_TEST_DB'], PYTHONIOENCODING='utf-8')
+            for options in ([], ['--apply'], ['--apply']):
+                result = subprocess.run([sys.executable, '-c', wrapper, '--data', str(new_path), '--previous-data', str(old_path)] + options,
+                    env=environment, capture_output=True, text=True, encoding='utf-8', timeout=60)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_actual_sync_cli_preview_apply_and_repeat(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -362,6 +450,7 @@ class SyncApiTests(unittest.TestCase):
             response = self.client.post('/api/annotator/data', data=json.dumps(payload),
                                         content_type=content_type, headers=self.headers)
             self.assertEqual(response.status_code, 200, response.get_json())
+            payload['image']['category_review_revision'] = response.get_json()['category_review_revision']
         self.assertEqual(list(self.db.annotation_model.find()), before)
 
     def test_editor_legacy_body_rejects_cross_origin_and_invalid_json(self):
@@ -412,13 +501,60 @@ class SyncApiTests(unittest.TestCase):
         self.activate()
         catalog = self.client.get('/api/category-review/catalog', headers=self.headers).get_json()
         self.assertEqual(len(catalog['sourceCategories']), 256)
-        self.assertEqual(len(catalog['mappings']), 42)
+        self.assertEqual(len(catalog['mappings']), len(self.data['mappings']))
         for mapping in catalog['mappings']:
             self.db.annotation_model.update_one({'_id': 90001}, {'$set': {'category_id': mapping['sourceCategoryId'], 'metadata': {'custom': 'keep'}}})
             payload = self.payload()
             self.assertEqual(payload['targetCategoryId'], mapping['targetCategoryId'])
             self.assertEqual(self.put(payload).status_code, 200)
         self.assertEqual(self.db.annotation_model.find_one({'_id': 90002})['category_id'], 1)
+
+    @unittest.skipUnless(os.environ.get('COCO_CATEGORY_PREVIOUS_BLUEPRINT') and os.environ.get('COCO_CATEGORY_TEST_BLUEPRINT'),
+                         'Previous and current MySQL exports not provided')
+    def test_full_previous_taxonomy_upgrade_preserves_ids_and_annotations(self):
+        for collection in self.db.list_collection_names():
+            self.db[collection].drop()
+        old = json.loads(Path(os.environ['COCO_CATEGORY_PREVIOUS_BLUEPRINT']).read_text(encoding='utf-8'))
+        new = json.loads(Path(os.environ['COCO_CATEGORY_TEST_BLUEPRINT']).read_text(encoding='utf-8'))
+        self.seed(old)
+        self.db.category_model.drop()
+        names = {}
+        for row in old['sourceCategories']:
+            name = ' '.join(row['name'].split())
+            if name not in names:
+                names[name] = len(names) + 1
+                self.db.category_model.insert_one({'_id': names[name], 'name': name, 'creator': 'system', 'deleted': False, 'metadata': {}})
+        self.db.dataset_model.update_one({'_id': 2}, {'$set': {'categories': list(names.values())}})
+        previous = helper.synchronize(self.db, old, self.create, apply=True)
+        # Earlier CLI versions saved managed categories with creator=system.
+        self.db.category_model.update_many({'metadata.check_annotator.taxonomy': old['taxonomy']},
+                                          {'$set': {'creator': 'system'}})
+        old_targets = {r['managedKey']: r for r in previous['targetCategories']}
+        new_keys = {r['key'] for r in new['targetCategories']}
+        retired = next(r for key, r in old_targets.items() if key not in new_keys)
+        self.db.annotation_model.update_one({'_id': 90001}, {'$set': {'category_id': retired['id']}})
+        categories = list(self.db.category_model.find().sort('_id'))
+        annotations = list(self.db.annotation_model.find().sort('_id'))
+        preview = helper.synchronize(self.db, new, self.create, previous_data=old)
+        self.assertEqual(preview['targetCategories'], len(new['targetCategories']))
+        self.assertEqual(preview['replacementChoices'], len(new['mappings']))
+        self.assertEqual(preview['actualSourceCategories'], 255)
+        self.assertEqual(preview['mappings'], len(new['mappings']) - 1)
+        self.assertEqual(preview['retireCategories'], 1)
+        self.assertGreater(preview['updateDescriptions'], 0)
+        self.assertEqual(list(self.db.category_model.find().sort('_id')), categories)
+        catalog = helper.synchronize(self.db, new, self.create, apply=True, previous_data=old)
+        for target in catalog['targetCategories']:
+            if target['managedKey'] in old_targets:
+                self.assertEqual(target['id'], old_targets[target['managedKey']]['id'])
+        self.assertEqual(list(self.db.annotation_model.find().sort('_id')), annotations)
+        self.assertEqual(helper.synchronize(self.db, new, self.create, apply=True, previous_data=old), catalog)
+        self.assertEqual(self.client.get('/api/category-review/catalog', headers=self.headers).status_code, 200)
+        editor = self.client.get('/api/annotator/data/4001', headers=self.headers).get_json()
+        self.assertEqual(sum(c.get('selectable', True) for c in editor['categories']), len(new['targetCategories']))
+        retired_row = next(c for c in editor['categories'] if c['id'] == retired['id'])
+        self.assertFalse(retired_row['selectable'])
+        self.assertTrue(retired_row['annotations'])
 
     @unittest.skipUnless(os.environ.get('COCO_CATEGORY_TEST_BLUEPRINT'), 'Full MySQL export not provided')
     def test_real_255_category_layout_and_omelet_choice(self):
@@ -442,8 +578,8 @@ class SyncApiTests(unittest.TestCase):
                          'dish consisting of stir-fried potato, eggplant and green pepper')
         preview = helper.synchronize(self.db, self.data, self.create)
         self.assertEqual(preview['actualSourceCategories'], 255)
-        self.assertEqual(preview['replacementChoices'], 42)
-        self.assertEqual(preview['mappings'], 41)
+        self.assertEqual(preview['replacementChoices'], len(self.data['mappings']))
+        self.assertEqual(preview['mappings'], len(self.data['mappings']) - 1)
         self.assertEqual(preview['ambiguousMappings'], 1)
         self.activate()
         self.assertEqual(list(self.db.category_model.find({'_id': {'$lte': 255}}).sort('_id')), legacy_before)
