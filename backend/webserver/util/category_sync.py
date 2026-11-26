@@ -59,8 +59,13 @@ def validate_blueprint(data):
     return sources, targets
 
 
-def plan_sync(db, data, source_bindings=None):
+def plan_sync(db, data, source_bindings=None, previous_data=None):
     sources, targets = validate_blueprint(data)
+    previous_targets = {}
+    if previous_data is not None:
+        _, previous_targets = validate_blueprint(previous_data)
+        if any(previous_data.get(k) != data.get(k) for k in ('taxonomy', 'datasetId', 'datasetName', 'source')):
+            raise ValueError('Previous blueprint belongs to a different taxonomy or dataset.')
     dataset = db.dataset_model.find_one({'_id': data['datasetId'], 'deleted': {'$ne': True}})
     if dataset is None or dataset.get('name') != data['datasetName']:
         raise ValueError('Dataset does not exist.')
@@ -70,6 +75,8 @@ def plan_sync(db, data, source_bindings=None):
     if set(bindings) - set(str(key) for key in sources):
         raise ValueError('Source bindings contain unknown external IDs.')
     previous = dataset.get('category_review_catalog') or {}
+    if previous_data is not None and previous and previous.get('version') not in (previous_data['version'], data['version']):
+        raise ValueError('Previous blueprint does not match the active catalog version.')
     scope = set(dataset.get('categories', [])) | set(dataset.get('category_review_previous_categories', []))
     scope.update(row['id'] for row in previous.get('sourceCategories', []))
     available = list(db.category_model.find({'_id': {'$in': list(scope)}, 'deleted': {'$ne': True}}))
@@ -107,7 +114,7 @@ def plan_sync(db, data, source_bindings=None):
         if keys:
             resolved_mappings.append({'sourceCategoryId': actual_id, 'targetKeys': keys,
                                       'requiresChoice': len(keys) > 1})
-    actual_targets, missing = {}, []
+    actual_targets, missing, description_updates = {}, [], []
     for key, row in sorted(targets.items()):
         found = list(db.category_model.find({'metadata.check_annotator.taxonomy': data['taxonomy'],
                                              'metadata.check_annotator.key': key}))
@@ -117,29 +124,61 @@ def plan_sync(db, data, source_bindings=None):
             actual = found[0]
             identity = actual.get('metadata', {}).get('check_annotator', {})
             if (actual.get('deleted') or actual['name'] != row['name']
-                    or identity.get('description', '') != row['description']
                     or identity.get('parentKey') != row.get('parentKey')
                     or actual.get('supercategory', '') != (targets[row['parentKey']]['name'] if row.get('parentKey') else '')
                     or actual['_id'] in source_ids.values()):
                 raise ValueError('Existing managed category conflicts with {}.'.format(key))
+            if identity.get('description', '') != row['description']:
+                old = previous_targets.get(key)
+                if (old is None or not previous or previous.get('version') != previous_data['version']
+                        or old['name'] != row['name'] or old.get('parentKey') != row.get('parentKey')
+                        or identity.get('description', '') != old['description']):
+                    raise ValueError('Existing managed description conflicts with {}; provide its verified previous blueprint.'.format(key))
+                description_updates.append({'id': actual['_id'], 'name': actual['name'],
+                                            'before': identity, 'description': row['description']})
             actual_targets[key] = actual['_id']
         else:
             # Never adopt or rename a category merely because its display name matches.
-            if db.category_model.find_one({'name': row['name'], 'creator': 'system'}):
+            if db.category_model.find_one({'name': row['name'], 'creator': 'system',
+                                           'metadata.check_annotator.taxonomy': {'$ne': data['taxonomy']}}):
                 raise ValueError('Unmanaged system category already uses name {}.'.format(row['name']))
             missing.append(row)
-    unknown = set(dataset.get('categories', [])) - set(source_ids.values()) - set(actual_targets.values())
+    retired = []
+    if previous_data is not None:
+        # Only targets identified by the previous catalog AND its checksum-validated blueprint
+        # may leave the selectable list. Keep their documents and annotations.
+        for entry in previous.get('targetCategories', []):
+            key = entry.get('managedKey')
+            if key in targets:
+                continue
+            old = previous_targets.get(key)
+            actual = by_id.get(entry['id'])
+            marker = (actual or {}).get('metadata', {}).get('check_annotator', {})
+            parent = previous_targets.get(old.get('parentKey'), {}) if old else {}
+            if (old is None or actual is None or actual.get('deleted')
+                    or previous.get('managedTaxonomy') != data['taxonomy']
+                    or entry.get('name') != old['name'] or actual.get('name') != old['name']
+                    or marker.get('taxonomy') != data['taxonomy'] or marker.get('key') != key
+                    or marker.get('description', '') != old['description']
+                    or marker.get('parentKey') != old.get('parentKey')
+                    or actual.get('supercategory', '') != parent.get('name', '')
+                    or actual['_id'] in source_ids.values()):
+                raise ValueError('Previous managed category identity conflicts with {}.'.format(key))
+            retired.append(actual['_id'])
+    unknown = set(dataset.get('categories', [])) - set(source_ids.values()) - set(actual_targets.values()) - set(retired)
     if unknown:
         raise ValueError('Dataset contains unrelated category IDs; resolve them before replacing selectable categories.')
     return {'dataset': dataset, 'sources': actual_sources, 'sourceIds': source_ids,
-            'targetIds': actual_targets, 'missing': missing, 'targets': targets, 'resolvedMappings': resolved_mappings}
+            'targetIds': actual_targets, 'missing': missing, 'targets': targets, 'resolvedMappings': resolved_mappings,
+            'descriptionUpdates': description_updates, 'retiredIds': retired}
 
 
-def synchronize(db, data, create_category, source_bindings=None, apply=False):
-    plan = plan_sync(db, data, source_bindings)
+def synchronize(db, data, create_category, source_bindings=None, apply=False, previous_data=None):
+    plan = plan_sync(db, data, source_bindings, previous_data)
     if not apply:
         return {'datasetId': data['datasetId'], 'createCategories': len(plan['missing']),
                 'targetCategories': len(plan['targets']), 'mappings': len(plan['resolvedMappings']),
+                'updateDescriptions': len(plan['descriptionUpdates']), 'retireCategories': len(plan['retiredIds']),
                 'sourceRows': len(data['sourceCategories']), 'actualSourceCategories': len(plan['sources']),
                 'replacementChoices': len(data['mappings']),
                 'ambiguousMappings': sum(row['requiresChoice'] for row in plan['resolvedMappings'])}
@@ -152,14 +191,21 @@ def synchronize(db, data, create_category, source_bindings=None, apply=False):
     if acquired.modified_count != 1:
         raise ValueError('Another category sync is running. Inspect an abandoned lock before retrying.')
     try:
-        plan = plan_sync(db, data, source_bindings)
+        plan = plan_sync(db, data, source_bindings, previous_data)
+        for update in plan['descriptionUpdates']:
+            changed = db.category_model.update_one(
+                {'_id': update['id'], 'name': update['name'], 'deleted': {'$ne': True},
+                 'metadata.check_annotator': update['before']},
+                {'$set': {'metadata.check_annotator.description': update['description']}})
+            if changed.modified_count != 1:
+                raise ValueError('Managed category changed during description update.')
         for target in plan['missing']:
             marker = {'taxonomy': data['taxonomy'], 'key': target['key'],
                       'description': target['description'], 'parentKey': target.get('parentKey'),
                       'parentName': plan['targets'][target['parentKey']]['name'] if target.get('parentKey') else ''}
             plan['targetIds'][target['key']] = create_category(target['name'], marker)
         # Re-resolve every created ID/name before exposing it to annotators.
-        plan = plan_sync(db, data, source_bindings)
+        plan = plan_sync(db, data, source_bindings, previous_data)
         if plan['missing']:
             raise ValueError('Created categories failed identity verification.')
         targets = [{'id': plan['targetIds'][key], 'name': row['name'], 'aliases': [],
